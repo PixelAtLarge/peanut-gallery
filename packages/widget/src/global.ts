@@ -11,6 +11,7 @@ if (script?.dataset.repo) {
     relayUrl: script.dataset.relayUrl,
     mode: script.dataset.mode as 'issue-url' | 'relay' | 'auto' | undefined,
     activation: script.dataset.activation as 'always' | 'query' | undefined,
+    loadFonts: script.dataset.loadFonts === 'true',
     author: script.dataset.author,
     labels: script.dataset.labels?.split(',').map((s) => s.trim()),
   });

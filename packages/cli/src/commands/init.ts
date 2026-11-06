@@ -44,11 +44,11 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
   console.log(pc.green(`✔ wrote ${CONFIG_FILE}`));
 
   await ensureLabels(repo, [
-    { name: LABELS.root, color: '4f6df5', description: 'Created by peanut-gallery' },
-    { name: LABELS.feedback, color: 'f5b64f', description: 'Prototype feedback captured with the peanut-gallery widget' },
-    { name: LABELS.proposal, color: '8e44ad', description: 'A peanut-gallery proposal / PR exists for this feedback' },
-    { name: LABELS.accepted, color: '2ecc71', description: 'Reviewers preferred the "after"' },
-    { name: LABELS.rejected, color: 'e74c3c', description: 'Reviewers preferred the "before"' },
+    { name: LABELS.root, color: '1E4D36', description: 'Created by peanut-gallery' },
+    { name: LABELS.feedback, color: 'EAC26C', description: 'Prototype feedback captured with the peanut-gallery widget' },
+    { name: LABELS.proposal, color: '6C8EBD', description: 'A peanut-gallery proposal / PR exists for this feedback' },
+    { name: LABELS.accepted, color: '0F7B52', description: 'Reviewers preferred the "after"' },
+    { name: LABELS.rejected, color: 'A5B0B6', description: 'Reviewers preferred the "before"' },
   ]);
   console.log(pc.green(`✔ labels ensured on ${repo}`));
 

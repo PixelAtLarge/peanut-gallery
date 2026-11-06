@@ -60,7 +60,7 @@ export async function captureShots(
   baseUrl: string,
   targets: ShotTarget[],
   outDir: string,
-  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number },
+  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string },
 ): Promise<ShotResult[]> {
   mkdirSync(outDir, { recursive: true });
   const browser = await launch();
@@ -79,7 +79,7 @@ export async function captureShots(
       let confidence: number | undefined;
       if (t.anchor) {
         await page.addScriptTag({ content: injectSrc() });
-        const loc = await page.evaluate((a) => window.__peanutGallery.locate(a, true), t.anchor);
+        const loc = await page.evaluate(([a, c]) => window.__peanutGallery.locate(a, true, c), [t.anchor, opts.outlineColor] as const);
         confidence = loc.confidence;
         if (loc.rect) {
           // Pad the element so the close-up has context; ensure a sensible minimum size.
@@ -134,7 +134,7 @@ export function joinUrl(baseUrl: string, pagePath: string): string {
 declare global {
   interface Window {
     __peanutGallery: {
-      locate(anchor: ElementAnchor, outline?: boolean): { rect: { x: number; y: number; width: number; height: number } | null; confidence: number };
+      locate(anchor: ElementAnchor, outline?: boolean, color?: string): { rect: { x: number; y: number; width: number; height: number } | null; confidence: number };
       clearOutlines(): void;
     };
   }

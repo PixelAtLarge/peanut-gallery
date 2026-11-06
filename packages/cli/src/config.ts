@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveTheme, type Theme } from '@peanut-gallery/core';
 
 export interface DevServerConfig {
   /** Command to start the prototype locally. `{port}` is substituted. e.g. "npm run dev -- --port {port}" */
@@ -27,6 +28,8 @@ export interface PeanutGalleryConfig {
   model?: string;
   /** Per-stage models. Defaults: interpret/variants/votes → claude-haiku-5-5; apply (coding agent) → claude-sonnet-5-5. Try claude-opus-5-5 for large codebases. */
   models?: { interpret?: string; apply?: string };
+  /** Override colours/fonts of the generated comparison pages (defaults to the Conifer / Prep / Wasabi palette). */
+  theme?: Partial<Theme>;
   /** Default spend cap in USD per `apply`/`review`/`variants` invocation (CLI --budget overrides). */
   budget?: number;
   screenshot?: { width?: number; height?: number; fullPage?: boolean };
@@ -46,6 +49,7 @@ export interface ResolvedConfig extends PeanutGalleryConfig {
   branchPrefix: string;
   sourceHints: string[];
   screenshot: { width: number; height: number; fullPage: boolean };
+  resolvedTheme: Theme;
 }
 
 export function loadConfig(cwd = process.cwd()): ResolvedConfig {
@@ -68,6 +72,7 @@ export function withDefaults(cfg: PeanutGalleryConfig): ResolvedConfig {
       apply: cfg.models?.apply ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL ?? 'claude-sonnet-5-5',
     },
     screenshot: { width: 1280, height: 800, fullPage: false, ...(cfg.screenshot ?? {}) },
+    resolvedTheme: resolveTheme(cfg.theme),
   };
 }
 

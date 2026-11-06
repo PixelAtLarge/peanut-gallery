@@ -217,11 +217,12 @@ export async function runProposal(
         const prototypeUrl = ctx.issues.find((i) => i.session.annotations.some((a) => p.annotationIds.includes(a.id)))?.session.prototypeUrl;
         const targets = shotTargets(p, annotations, prototypeUrl);
         const outDir = join(wt, WORK_DIR, 'compare', p.id);
-        const b = await captureShots(ctx.before.url, targets, outDir, { ...cfg.screenshot, prefix: 'before' });
-        const a = await captureShots(after.url, targets, outDir, { ...cfg.screenshot, prefix: 'after' });
+        const shot = { ...cfg.screenshot, outlineColor: cfg.resolvedTheme.accent };
+        const b = await captureShots(ctx.before.url, targets, outDir, { ...shot, prefix: 'before' });
+        const a = await captureShots(after.url, targets, outDir, { ...shot, prefix: 'after' });
         const pairs: ComparePair[] = targets.map((t, i) => ({ label: t.label, before: relative(outDir, b[i].file), after: relative(outDir, a[i].file) }));
-        writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }));
-        writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs));
+        writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
+        writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
         await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));
         record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after }));
         record.targetLabels = targets.map((t) => t.label);

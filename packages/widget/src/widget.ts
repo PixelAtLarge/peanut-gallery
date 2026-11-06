@@ -7,6 +7,10 @@ import {
   type Annotation,
   type AnnotationKind,
   type ReviewSession,
+  resolveTheme,
+  themeToCssVars,
+  DEFAULT_FONTS_URL,
+  type Theme,
 } from '@peanut-gallery/core';
 import { css } from './styles.js';
 
@@ -35,6 +39,14 @@ export interface PeanutGalleryConfig {
   activation?: 'always' | 'query';
   /** Which annotation kinds to offer. */
   kinds?: AnnotationKind[];
+  /** Override any colour or font role. Defaults to the Conifer / Prep / Wasabi palette. */
+  theme?: Partial<Theme>;
+  /**
+   * Load the default fonts (Manrope, Young Serif, JetBrains Mono) from Google Fonts into the page.
+   * Off by default so the widget never adds third-party requests to a prototype unasked;
+   * without it the widget uses those fonts if the page already has them, else the system UI font.
+   */
+  loadFonts?: boolean;
 }
 
 const DEFAULT_KINDS: AnnotationKind[] = ['bug', 'copy', 'layout', 'visual', 'flow', 'question', 'praise'];
@@ -86,7 +98,13 @@ export class PeanutGalleryWidget {
     this.host.setAttribute('data-peanut-gallery', '');
     this.root = this.host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
-    style.textContent = css;
+    style.textContent = `:host { ${themeToCssVars(resolveTheme(this.cfg.theme))} }\n${css}`;
+    if (this.cfg.loadFonts && !document.querySelector(`link[href="${DEFAULT_FONTS_URL}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = DEFAULT_FONTS_URL;
+      document.head.append(link);
+    }
     this.root.append(style);
 
     this.highlight = el('div', 'pg-highlight pg-hidden');

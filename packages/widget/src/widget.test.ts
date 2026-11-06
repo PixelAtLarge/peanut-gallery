@@ -63,3 +63,21 @@ describe('widget', () => {
     w.destroy();
   });
 });
+
+describe('theme', () => {
+  it('applies the default palette and per-role overrides as CSS variables', () => {
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', theme: { primary: '#ff0000' } }).mount();
+    const style = document.querySelector('peanut-gallery')!.shadowRoot!.querySelector('style')!.textContent!;
+    expect(style).toContain('--pg-primary: #ff0000;');
+    expect(style).toContain('--pg-toolbar: #1E4D36;');
+    expect(style).toContain('--pg-accent: #EAC26C;');
+    expect(document.querySelector('link[href*="fonts.googleapis.com"]')).toBeNull();
+    w.destroy();
+  });
+
+  it('only loads fonts when asked', () => {
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', loadFonts: true }).mount();
+    expect(document.querySelectorAll('link[href*="fonts.googleapis.com"]')).toHaveLength(1);
+    w.destroy();
+  });
+});

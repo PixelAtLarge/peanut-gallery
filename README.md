@@ -76,6 +76,18 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 | `author` | asks once | reviewer name on the issue |
 | `labels` | `peanut-gallery, peanut-gallery:feedback` | |
 | `kinds` | all seven | which tags to offer |
+| `theme` | Conifer / Prep / Wasabi | override any colour or font role, e.g. `{ primary: '#5b3df5', fontBody: 'Inter, sans-serif' }` |
+| `loadFonts` | `false` | load Manrope, Young Serif and JetBrains Mono from Google Fonts (`data-load-fonts="true"` on the script tag) |
+
+### Theming
+
+The widget and the generated comparison pages share one theme: a deep forest toolbar, emerald actions, sunny-yellow pins and outlines, carbon text on linen, with Young Serif headings and Manrope UI text. Every role (`primary`, `toolbar`, `accent`, `highlight`, `chip`, `bg`, `fontBody`, …, see `packages/core/src/theme.ts`) can be overridden — `theme` in `init()` for the widget, `theme` in `peanut-gallery.config.json` for the CLI's before/after and options pages:
+
+```jsonc
+{ "theme": { "primary": "#5b3df5", "toolbar": "#1b1340", "accent": "#ffcc4d" } }
+```
+
+The widget never loads webfonts on its own; it uses the theme fonts if the page already has them (or with `loadFonts: true`) and falls back to the system UI font.
 
 ### How anchoring works
 
@@ -118,6 +130,7 @@ npx peanut-gallery review        # pull → interpret → confirm → apply
   "agentNotes": "Tailwind + shadcn. Use tokens from src/theme.ts.",
   "models": { "interpret": "claude-haiku-5-5", "apply": "claude-sonnet-5-5" },   // try claude-opus-5-5 for apply on big codebases
   "budget": 10,                                   // USD cap per apply/review/variants run; --budget overrides
+  "theme": {},                                    // optional colour/font overrides for comparison pages
   "screenshot": { "width": 1280, "height": 800 }
 }
 ```

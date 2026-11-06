@@ -79,8 +79,8 @@ export async function variantsCommand(id: string, opts: VariantsOptions = {}): P
       const d = directions.find((x) => x.label === r.variantLabel)!;
       return { label: r.variantLabel!, title: d.title, summary: d.summary, prUrl: r.prUrl, images: r.screenshots.map((s) => relative(outDir, join(ctx.root, r.localCompareDir!, s.after))) };
     });
-    writeFileSync(join(outDir, 'options.html'), renderOptionsPage(p, targets, before, columns));
-    writeFileSync(join(outDir, 'options-summary.html'), renderOptionsPage(p, targets, before, columns, { compact: true }));
+    writeFileSync(join(outDir, 'options.html'), renderOptionsPage(p, targets, before, columns, { theme: ctx.cfg.resolvedTheme }));
+    writeFileSync(join(outDir, 'options-summary.html'), renderOptionsPage(p, targets, before, columns, { compact: true, theme: ctx.cfg.resolvedTheme }));
     await renderHtmlToPng(join(outDir, 'options-summary.html'), join(outDir, 'options.png'), Math.min(1600, 360 * (1 + columns.length) + 48));
     console.log(pc.green(`  ✔ combined comparison`) + pc.dim(` ${relative(ctx.root, join(outDir, 'options.html'))}`));
 
