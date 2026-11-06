@@ -43,6 +43,8 @@ export async function votesCommand(opts: { label?: boolean } = {}): Promise<Vote
     for (const rep of replies) console.log(`  ${rep.pick ? pc.green(rep.pick.padEnd(6)) : pc.dim('  ?   ')} ${pc.dim(`${rep.author}:`)} ${rep.text}`);
     if (opts.label && total) {
       for (const v of vs) v.status = v.variantLabel === best ? 'accepted' : 'rejected';
+      const issues = Array.from(new Set(vs.flatMap((v) => v.issueCommentIds.map((c) => c.issue))));
+      for (const n of issues) await addLabels(cfg.repo, n, [cfg.labels?.accepted ?? LABELS.accepted]).catch(() => {});
       const win = vs.find((v) => v.variantLabel === best);
       if (win?.prNumber) await commentOnIssue(cfg.repo, win.prNumber, `✅ Reviewers picked option **${best}** (${labels.map((l) => `${l}: ${tally[l]}`).join(', ')}). Ready to merge.`).catch(() => {});
     }
