@@ -1,0 +1,383 @@
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import pc from 'picocolors';
+import { LABELS, type Proposal, type ProposalRun } from '@peanut-gallery/core';
+import { implementProposal } from '../agent.js';
+import { loadConfig, readJson, workPath, writeJson, WORK_DIR, type ResolvedConfig } from '../config.js';
+import { startDevServer, type RunningServer } from '../devserver.js';
+import { addLabels, blobImageUrl, commentOnIssue, createPr, git, type FeedbackIssue } from '../github.js';
+import { flatten, type FlatAnnotation } from '../interpret.js';
+import { authHint, hasCredentials } from '../llm.js';
+import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
+import { captureShots, renderHtmlToPng, type ShotTarget } from '../screenshots.js';
+import { pathOf } from './pull.js';
+
+export interface ApplyOptions {
+  only?: string[];
+  pr?: boolean; // default true
+  draft?: boolean;
+  screenshots?: boolean; // default true
+  comment?: boolean; // default true: post comparison back to issues
+  /** Apply contested proposals using the model's recommended position instead of skipping them. */
+  includeContested?: boolean;
+  /** Spend cap in USD for this invocation; stops before a proposal whose estimate would exceed it. */
+  budget?: number;
+  /** Print the cost estimate and exit without building. */
+  dryRun?: boolean;
+  port?: number;
+  proposals?: Proposal[];
+  issues?: FeedbackIssue[];
+}
+
+export interface RunRecord extends ProposalRun {
+  title: string;
+  issueCommentIds: { issue: number; commentId: number; url: string }[];
+  agentSummary?: string;
+  costUsd?: number;
+  createdAt: string;
+  /** Set when this run is one option of a `variants` round. */
+  variantOf?: string;
+  variantLabel?: string;
+  /** Local copy of the compare folder (screenshots + compare.html) in the main checkout. */
+  localCompareDir?: string;
+  /** Labels of shot targets, in order, so variant rounds can line up columns. */
+  targetLabels?: string[];
+}
+
+/** Shared state for a batch of proposal runs (config, annotations, the "before" server). */
+export interface RunContext {
+  cfg: ResolvedConfig;
+  root: string;
+  issues: FeedbackIssue[];
+  annotations: FlatAnnotation[];
+  runs: RunRecord[];
+  basePort: number;
+  before: RunningServer | null;
+  /** USD spent by agent runs in this invocation. */
+  spent: number;
+}
+
+export async function createRunContext(opts: { issues?: FeedbackIssue[]; port?: number } = {}): Promise<RunContext> {
+  const cfg = loadConfig();
+  const issues = opts.issues ?? readJson<FeedbackIssue[]>(workPath('feedback.json'), []);
+  const root = await git(['rev-parse', '--show-toplevel']);
+  if (await git(['status', '--porcelain']).then((s) => s.length > 0)) {
+    console.log(pc.yellow('Note: working tree has uncommitted changes; proposals branch from the committed base branch.'));
+  }
+  return {
+    cfg,
+    root,
+    issues,
+    annotations: flatten(issues),
+    runs: readJson<RunRecord[]>(workPath('runs.json'), []),
+    basePort: opts.port ?? cfg.dev?.port ?? 4310,
+    before: null,
+    spent: 0,
+  };
+}
+
+export async function applyCommand(opts: ApplyOptions = {}): Promise<RunRecord[]> {
+  const allProposals = opts.proposals ?? readJson<Proposal[]>(workPath('proposals.json'), []);
+  const proposals = opts.only?.length ? allProposals.filter((p) => opts.only!.some((o) => p.id === o || p.id.endsWith(o))) : allProposals;
+  if (!proposals.length) {
+    console.log(pc.yellow('No proposals to apply. Run `peanut-gallery interpret` first.'));
+    return [];
+  }
+  if (!(await hasCredentials())) throw new Error(authHint());
+  const ctx = await createRunContext(opts);
+  const budget = opts.budget ?? ctx.cfg.budget;
+  printEstimate(ctx, proposals, budget);
+  if (opts.dryRun) return [];
+  const results: RunRecord[] = [];
+  try {
+    for (const [idx, p] of proposals.entries()) {
+      console.log(pc.bold(`\n━━ ${idx + 1}/${proposals.length} ${p.title} ${pc.dim(`[${p.id}] ${supportLine(p)}`)}`));
+      if (p.contested && !opts.includeContested) {
+        await gateContested(ctx, p, opts);
+        continue;
+      }
+      if (!withinBudget(ctx, p.effort, budget)) break;
+      const rec = await runProposal(ctx, p, idx, opts);
+      if (rec) results.push(rec);
+    }
+  } finally {
+    await ctx.before?.stop();
+  }
+  if (ctx.spent) console.log(pc.dim(`\nagent spend this run: $${ctx.spent.toFixed(2)}${budget ? ` of $${budget.toFixed(2)} budget` : ''}`));
+  return results;
+}
+
+/** Rough per-proposal agent cost by effort, refined by what previous runs actually cost. */
+export function estimateCost(ctx: Pick<RunContext, 'runs'>, effort: Proposal['effort']): number {
+  const base = { small: 0.5, medium: 1.0, large: 2.5 }[effort] ?? 1.0;
+  const priced = ctx.runs.filter((r) => typeof r.costUsd === 'number' && r.costUsd > 0);
+  if (priced.length < 2) return base;
+  const avg = priced.reduce((a, r) => a + r.costUsd!, 0) / priced.length;
+  // scale the effort weights by observed average (medium ≈ avg)
+  return Math.round(base * (avg / 1.0) * 100) / 100;
+}
+
+export function withinBudget(ctx: RunContext, effort: Proposal['effort'], budget?: number): boolean {
+  if (!budget) return true;
+  const est = estimateCost(ctx, effort);
+  if (ctx.spent + est <= budget) return true;
+  console.log(pc.yellow(`  ⏸ budget: spent $${ctx.spent.toFixed(2)} + est. $${est.toFixed(2)} would exceed $${budget.toFixed(2)} — stopping. Re-run with --budget to continue.`));
+  return false;
+}
+
+function printEstimate(ctx: RunContext, proposals: Proposal[], budget?: number) {
+  const rows = proposals.map((p) => ({ p, est: p.contested ? 0 : estimateCost(ctx, p.effort) }));
+  const total = rows.reduce((a, r) => a + r.est, 0);
+  console.log(pc.dim(`\nestimate (agent ${ctx.cfg.models.apply}): ${rows.map((r) => `${r.p.effort}≈$${r.est.toFixed(2)}`).join(' + ')} ≈ $${total.toFixed(2)}${budget ? ` · budget $${budget.toFixed(2)}` : ''}`));
+  if (budget && total > budget) console.log(pc.yellow(`estimate exceeds budget; will stop partway. Use --only to pick proposals or raise --budget.`));
+}
+
+async function gateContested(ctx: RunContext, p: Proposal, opts: ApplyOptions) {
+  const c = p.contested!;
+  console.log(pc.yellow(`  ⚑ contested — ${c.reason}`));
+  c.positions.forEach((pos, n) => console.log(`    ${n}. ${pos.summary} ${pc.dim(`— ${pos.reviewers.join(', ')}`)}`));
+  const already = ctx.runs.find((r) => r.proposalId === p.id && r.status === 'decision-needed');
+  if (opts.comment !== false && opts.pr !== false && !already) {
+    const rec: RunRecord = { proposalId: p.id, title: p.title, branch: '', screenshots: [], issueCommentIds: [], status: 'decision-needed', createdAt: new Date().toISOString() };
+    for (const n of p.issueNumbers) {
+      const cm = await commentOnIssue(ctx.cfg.repo, n, decisionComment(p));
+      rec.issueCommentIds.push({ issue: n, commentId: cm.id, url: cm.url });
+    }
+    ctx.runs.push(rec);
+    writeJson(workPath('runs.json'), ctx.runs);
+    console.log(pc.yellow(`  posted "decision needed" to ${p.issueNumbers.map((n) => '#' + n).join(', ')}`));
+  }
+  console.log(pc.dim(`  skipped. Resolve with \`peanut-gallery decide ${p.id} <n>\`, build options with \`peanut-gallery variants ${p.id}\`, or re-run with --include-contested`));
+}
+
+/**
+ * Implement one proposal on its own branch, capture before/after, optionally open a PR and
+ * post the comparison to the source issues. Returns null when the agent produced no changes.
+ */
+export async function runProposal(
+  ctx: RunContext,
+  p: Proposal,
+  idx: number,
+  opts: ApplyOptions & { variantOf?: string; variantLabel?: string },
+): Promise<RunRecord | null> {
+  const { cfg, root, annotations } = ctx;
+  const suffix = opts.variantLabel ? `-${opts.variantLabel.toLowerCase()}` : '';
+  const branch = `${cfg.branchPrefix}${slug(p.title)}-${(opts.variantOf ?? p.id).split('_').pop()}${suffix}`;
+  const wt = join(root, WORK_DIR, 'worktrees', branch.replace(/[\/]/g, '__'));
+
+  // 1. isolated worktree from base
+  if (existsSync(wt)) await git(['worktree', 'remove', '--force', wt]).catch(() => rmSync(wt, { recursive: true, force: true }));
+  await git(['branch', '-D', branch]).catch(() => {});
+  await git(['worktree', 'add', '-b', branch, wt, cfg.baseBranch]);
+  linkNodeModules(root, wt);
+  console.log(pc.dim(`  worktree ${relative(root, wt)} on ${branch}`));
+
+  // 2. implement with the agent
+  console.log(pc.dim(`  implementing with ${cfg.models.apply}…`));
+  const agent = await implementProposal(p, annotations, {
+    cwd: wt,
+    model: cfg.models.apply,
+    sourceHints: cfg.sourceHints,
+    agentNotes: cfg.agentNotes,
+    onProgress: (l) => console.log(pc.dim(`    ${l}`)),
+  });
+  const changed = await git(['status', '--porcelain'], wt);
+  if (!agent.ok || !changed) {
+    console.log(pc.red(`  ✖ no changes produced (${agent.ok ? 'agent made no edits' : agent.summary})`));
+    await git(['worktree', 'remove', '--force', wt]);
+    await git(['branch', '-D', branch]).catch(() => {});
+    return null;
+  }
+  await git(['add', '-A'], wt);
+  await git(['commit', '-q', '-m', `${p.title}\n\n${p.summary}\n\npeanut-gallery proposal ${p.id}; refs ${p.issueNumbers.map((n) => '#' + n).join(', ')}`], wt);
+  ctx.spent += agent.costUsd ?? 0;
+  console.log(pc.green(`  ✔ implemented`) + pc.dim(agent.costUsd ? ` ($${agent.costUsd.toFixed(2)}, ${agent.turns} turns)` : ''));
+
+  const record: RunRecord = {
+    proposalId: p.id,
+    title: p.title,
+    branch,
+    screenshots: [],
+    issueCommentIds: [],
+    status: 'applied',
+    agentSummary: agent.summary,
+    costUsd: agent.costUsd,
+    createdAt: new Date().toISOString(),
+    variantOf: opts.variantOf,
+    variantLabel: opts.variantLabel,
+  };
+
+  // 3. before/after screenshots
+  let summaryRel: string | undefined;
+  if (opts.screenshots !== false) {
+    try {
+      if (!ctx.before) ctx.before = await resolveBeforeServer(cfg, root, ctx.basePort);
+      const after = await startDevServer(cfg.dev!, wt, ctx.basePort + 1 + idx, (s) => console.log(pc.dim(`  ${s}`)));
+      try {
+        const prototypeUrl = ctx.issues.find((i) => i.session.annotations.some((a) => p.annotationIds.includes(a.id)))?.session.prototypeUrl;
+        const targets = shotTargets(p, annotations, prototypeUrl);
+        const outDir = join(wt, WORK_DIR, 'compare', p.id);
+        const b = await captureShots(ctx.before.url, targets, outDir, { ...cfg.screenshot, prefix: 'before' });
+        const a = await captureShots(after.url, targets, outDir, { ...cfg.screenshot, prefix: 'after' });
+        const pairs: ComparePair[] = targets.map((t, i) => ({ label: t.label, before: relative(outDir, b[i].file), after: relative(outDir, a[i].file) }));
+        writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }));
+        writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs));
+        await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));
+        record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after }));
+        record.targetLabels = targets.map((t) => t.label);
+        record.comparePath = relative(wt, join(outDir, 'compare.html'));
+        summaryRel = relative(wt, join(outDir, 'summary.png'));
+        // keep a local copy so `compare` and `variants` can work without checking out the branch
+        const local = workPath('compare', p.id);
+        rmSync(local, { recursive: true, force: true });
+        cpSync(outDir, local, { recursive: true });
+        record.localCompareDir = relative(root, local);
+        await git(['add', '-f', join(WORK_DIR, 'compare', p.id)], wt);
+        await git(['commit', '-q', '-m', `peanut-gallery: before/after for ${p.id}`], wt);
+        console.log(pc.green(`  ✔ before/after`) + pc.dim(` ${record.comparePath}`));
+      } finally {
+        await after.stop();
+      }
+    } catch (err) {
+      console.log(pc.yellow(`  ⚠ screenshots skipped: ${(err as Error).message.split('\n')[0]}`));
+    }
+  }
+
+  // 4. push + PR + comment back
+  if (opts.pr !== false) {
+    await git(['push', '-u', 'origin', branch, '--force'], wt);
+    const img = summaryRel ? `![before / after](${blobImageUrl(cfg.repo, branch, summaryRel)})\n\n` : '';
+    const body = [
+      `${img}## ${p.title}`,
+      `**${supportLine(p)}**`,
+      '',
+      p.summary,
+      p.contested ? `\n> ⚑ This change was contested — ${p.contested.reason} Applied position ${p.contested.recommended}: ${p.contested.positions[p.contested.recommended].summary}` : '',
+      opts.variantOf ? `\n> Option **${opts.variantLabel}** of a \`peanut-gallery variants\` round for proposal \`${opts.variantOf}\`. See the combined comparison on the issue.` : '',
+      '',
+      '### What changed',
+      agent.summary,
+      '',
+      '### Reviewer feedback addressed',
+      ...annotations.filter((a) => p.annotationIds.includes(a.id)).map((a) => `- #${a.issueNumber}: “${a.text.split('\n')[0]}” _(${a.reviewer})_`),
+      '',
+      record.comparePath ? `Interactive comparison (slider / toggle): \`${record.comparePath}\` on this branch — \`npx peanut-gallery compare ${p.id}\`` : '',
+      '',
+      `Refs ${p.issueNumbers.map((n) => '#' + n).join(', ')}`,
+      '',
+      `<sub>Generated by peanut-gallery · proposal \`${p.id}\` · effort ${p.effort} · confidence ${(p.confidence * 100).toFixed(0)}%</sub>`,
+    ].join('\n');
+    const pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title: opts.variantLabel ? `${p.title} (option ${opts.variantLabel})` : p.title, body, cwd: wt, draft: opts.draft });
+    record.prUrl = pr.url;
+    record.prNumber = pr.number;
+    record.status = 'pr-opened';
+    console.log(pc.green(`  ✔ PR ${pr.url}`));
+
+    if (opts.comment !== false) {
+      for (const n of p.issueNumbers) {
+        const c = await commentOnIssue(
+          cfg.repo,
+          n,
+          [
+            `### Proposed update: ${p.title}`,
+            `_${supportLine(p)}_`,
+            '',
+            p.summary,
+            '',
+            img,
+            `Pull request: ${pr.url}`,
+            '',
+            '**Which do you prefer?** React 👍 on this comment for **After**, 👎 to keep **Before**, or reply with more feedback (e.g. “after, but keep the old colour”).',
+            '',
+            `<sub>peanut-gallery proposal \`${p.id}\`</sub>`,
+          ].join('\n'),
+        );
+        record.issueCommentIds.push({ issue: n, commentId: c.id, url: c.url });
+        await addLabels(cfg.repo, n, [cfg.labels?.proposal ?? LABELS.proposal]).catch(() => {});
+      }
+      console.log(pc.green(`  ✔ posted comparison to ${p.issueNumbers.map((n) => '#' + n).join(', ')}`));
+    }
+  }
+
+  // 5. tidy: keep the branch, drop the worktree
+  await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+  ctx.runs.push(record);
+  writeJson(workPath('runs.json'), ctx.runs);
+  return record;
+}
+
+async function resolveBeforeServer(cfg: ResolvedConfig, root: string, port: number): Promise<RunningServer> {
+  if (cfg.prototypeUrl) return { url: cfg.prototypeUrl, stop: async () => {} };
+  if (!cfg.dev) throw new Error('Set prototypeUrl or dev.command in peanut-gallery.config.json for "before" screenshots');
+  const wt = join(root, WORK_DIR, 'worktrees', '__base');
+  if (existsSync(wt)) await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+  await git(['worktree', 'add', '--detach', wt, cfg.baseBranch]);
+  linkNodeModules(root, wt);
+  const s = await startDevServer(cfg.dev, wt, port);
+  return {
+    url: s.url,
+    stop: async () => {
+      await s.stop();
+      await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+    },
+  };
+}
+
+function linkNodeModules(root: string, wt: string) {
+  const src = join(root, 'node_modules');
+  const dst = join(wt, 'node_modules');
+  if (existsSync(src) && !existsSync(dst)) {
+    try {
+      symlinkSync(src, dst, 'junction');
+    } catch {
+      /* fall back to the project's own install step */
+    }
+  }
+  mkdirSync(join(wt, WORK_DIR), { recursive: true });
+}
+
+function shotTargets(p: Proposal, annotations: FlatAnnotation[], prototypeUrl?: string): ShotTarget[] {
+  const targets: ShotTarget[] = [];
+  const anns = annotations.filter((a) => p.annotationIds.includes(a.id));
+  p.focusAnchors.forEach((anchor, i) => {
+    const a = anns.find((x) => x.anchor.selector === anchor.selector) ?? anns[0];
+    targets.push({
+      key: `el${i + 1}`,
+      label: `${anchor.tag}${anchor.textFingerprint ? ` “${anchor.textFingerprint.slice(0, 40)}”` : ''} · ${pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl)}`,
+      pagePath: pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl),
+      anchor,
+    });
+  });
+  p.pages.forEach((page, i) => targets.push({ key: `page${i + 1}`, label: `Page ${pathOf(page, prototypeUrl)}`, pagePath: pathOf(page, prototypeUrl) }));
+  return targets.slice(0, 8);
+}
+
+export function supportLine(p: Proposal): string {
+  const who = p.support.reviewers;
+  if (!who.length) return `${p.support.annotationCount} comment(s)`;
+  if (who.length === 1) return `requested by ${who[0]} (${p.support.annotationCount} comment${p.support.annotationCount === 1 ? '' : 's'})`;
+  return `${who.length} reviewers agree — ${who.join(', ')} (${p.support.annotationCount} comments)`;
+}
+
+export function decisionComment(p: Proposal): string {
+  const c = p.contested!;
+  return [
+    `### ⚑ Decision needed: ${p.title}`,
+    `Reviewers disagree — ${c.reason}`,
+    '',
+    ...c.positions.map((pos, n) => `**Option ${n}** ${n === c.recommended ? '_(recommended)_' : ''}\n${pos.summary}\n<sub>${pos.reviewers.length ? pos.reviewers.join(', ') : 'no reviewer'}</sub>\n`),
+    `Reply with the option number you'd like built (e.g. "option ${c.recommended}"), or react on this comment: ${c.positions.map((_, n) => `${['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣'][n] ?? n} = option ${n}`).join(', ')}.`,
+    `The maintainer then runs \`peanut-gallery decide ${p.id} <n>\` and the before/after follows.`,
+    '',
+    `<sub>peanut-gallery proposal \`${p.id}\`</sub>`,
+  ].join('\n');
+}
+
+export function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/['"’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+}

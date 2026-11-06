@@ -1,0 +1,68 @@
+import { existsSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline/promises';
+import pc from 'picocolors';
+import { LABELS } from '@peanut-gallery/core';
+import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
+import { ensureLabels, gh } from '../github.js';
+
+export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string }) {
+  if (existsSync(CONFIG_FILE) && !opts.yes) {
+    console.log(pc.yellow(`${CONFIG_FILE} already exists; edit it directly or re-run with --yes to overwrite.`));
+    return;
+  }
+  let detected = '';
+  try {
+    detected = JSON.parse(await gh(['repo', 'view', '--json', 'nameWithOwner'])).nameWithOwner;
+  } catch {
+    /* not in a gh-known repo */
+  }
+  const rl = opts.yes ? null : createInterface({ input: process.stdin, output: process.stdout });
+  const ask = async (q: string, def: string) => {
+    if (!rl) return def;
+    const a = (await rl.question(`${q}${def ? pc.dim(` (${def})`) : ''}: `)).trim();
+    return a || def;
+  };
+  const repo = opts.repo ?? (await ask('GitHub repo (owner/name)', detected));
+  const prototypeUrl = opts.prototypeUrl ?? (await ask('Hosted prototype URL for "before" screenshots (blank = use local dev server)', ''));
+  const devCommand = opts.dev ?? (await ask('Command to run the prototype locally ({port} is substituted)', 'npm run dev -- --port {port}'));
+  rl?.close();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must look like owner/name');
+
+  const cfg: PeanutGalleryConfig = {
+    repo,
+    prototypeUrl: prototypeUrl || undefined,
+    baseBranch: 'main',
+    dev: { command: devCommand, port: 4310 },
+    sourceHints: ['src/**'],
+    agentNotes: '',
+    models: { interpret: 'claude-haiku-5-5', apply: 'claude-sonnet-5-5' },
+    budget: 10,
+    screenshot: { width: 1280, height: 800 },
+  };
+  writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n');
+  ensureWorkDir();
+  console.log(pc.green(`✔ wrote ${CONFIG_FILE}`));
+
+  await ensureLabels(repo, [
+    { name: LABELS.root, color: '4f6df5', description: 'Created by peanut-gallery' },
+    { name: LABELS.feedback, color: 'f5b64f', description: 'Prototype feedback captured with the peanut-gallery widget' },
+    { name: LABELS.proposal, color: '8e44ad', description: 'A peanut-gallery proposal / PR exists for this feedback' },
+    { name: LABELS.accepted, color: '2ecc71', description: 'Reviewers preferred the "after"' },
+    { name: LABELS.rejected, color: 'e74c3c', description: 'Reviewers preferred the "before"' },
+  ]);
+  console.log(pc.green(`✔ labels ensured on ${repo}`));
+
+  console.log(`
+${pc.bold('Add the widget to your prototype:')}
+
+  ${pc.cyan(`<script src="https://unpkg.com/@peanut-gallery/widget/dist/peanut-gallery.global.js" data-repo="${repo}" data-activation="query"></script>`)}
+
+  then open the prototype with ${pc.cyan('?peanut')} in the URL. Reviewers click "Comment", click elements, write notes, and "Submit to GitHub".
+  For one-click submission without GitHub accounts, deploy @peanut-gallery/relay and add ${pc.cyan('data-relay-url="https://…/api/peanut-gallery"')}.
+
+${pc.bold('Then, in this repo:')}
+  ${pc.cyan('npx playwright install chromium')}   ${pc.dim('(once, for screenshots)')}
+  ${pc.cyan('claude login')}  ${pc.dim('(Claude Code) — or export ANTHROPIC_API_KEY=…')}
+  ${pc.cyan('npx peanut-gallery review')}            ${pc.dim('pull → interpret → implement → before/after → PRs')}
+`);
+}

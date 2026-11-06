@@ -1,0 +1,50 @@
+{
+  "name": "peanut-gallery",
+  "version": "0.1.0",
+  "description": "CLI: pull prototype feedback from GitHub Issues, let Claude propose and implement design updates, generate before/after comparisons, and open PRs.",
+  "keywords": [
+    "prototype",
+    "feedback",
+    "design-review",
+    "claude",
+    "ai",
+    "github",
+    "pull-requests",
+    "before-after"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PixelAtLarge/peanut-gallery.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/PixelAtLarge/peanut-gallery#readme",
+  "bugs": {
+    "url": "https://github.com/PixelAtLarge/peanut-gallery/issues"
+  },
+  "type": "module",
+  "bin": {
+    "peanut-gallery": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.0",
+    "@anthropic-ai/sdk": "^1.0.0",
+    "@peanut-gallery/core": "0.1.0",
+    "commander": "^13.0.0",
+    "picocolors": "^1.1.0",
+    "playwright": "^1.50.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

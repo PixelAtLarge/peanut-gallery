@@ -1,0 +1,49 @@
+{
+  "name": "@peanut-gallery/relay",
+  "version": "0.1.0",
+  "description": "Tiny serverless relay that turns peanut-gallery widget submissions into GitHub Issues. Deploy to Vercel, Cloudflare, Netlify or Node.",
+  "keywords": [
+    "github-issues",
+    "serverless",
+    "prototype",
+    "feedback"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PixelAtLarge/peanut-gallery.git",
+    "directory": "packages/relay"
+  },
+  "homepage": "https://github.com/PixelAtLarge/peanut-gallery#readme",
+  "bugs": {
+    "url": "https://github.com/PixelAtLarge/peanut-gallery/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/node.ts --format esm,cjs --dts --clean",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@peanut-gallery/core": "0.1.0"
+  },
+  "license": "MIT"
+}

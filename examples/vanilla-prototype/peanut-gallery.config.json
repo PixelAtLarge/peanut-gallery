@@ -1,0 +1,8 @@
+{
+  "repo": "acme/checkout-prototype",
+  "baseBranch": "main",
+  "dev": { "command": "npx serve -l {port} .", "port": 4310 },
+  "sourceHints": ["index.html", "styles.css"],
+  "agentNotes": "Static HTML prototype. Styling lives in styles.css; keep the existing CSS variables.",
+  "screenshot": { "width": 1280, "height": 800 }
+}

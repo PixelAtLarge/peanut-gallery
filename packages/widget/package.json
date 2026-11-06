@@ -1,0 +1,65 @@
+{
+  "name": "@peanut-gallery/widget",
+  "version": "0.1.0",
+  "description": "Drop-in annotation layer for hosted prototypes. Comments attach to DOM elements and submit to GitHub Issues.",
+  "keywords": [
+    "prototype",
+    "feedback",
+    "annotation",
+    "comments",
+    "design-review",
+    "widget"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PixelAtLarge/peanut-gallery.git",
+    "directory": "packages/widget"
+  },
+  "homepage": "https://github.com/PixelAtLarge/peanut-gallery#readme",
+  "bugs": {
+    "url": "https://github.com/PixelAtLarge/peanut-gallery/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/peanut-gallery.global.js",
+  "jsdelivr": "./dist/peanut-gallery.global.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./global": "./dist/peanut-gallery.global.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@peanut-gallery/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0"
+  },
+  "license": "MIT"
+}

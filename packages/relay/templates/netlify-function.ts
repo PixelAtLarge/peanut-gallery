@@ -1,0 +1,11 @@
+// Netlify Functions v2: copy to netlify/functions/peanut-gallery.ts
+import { createRelayHandler } from '@peanut-gallery/relay';
+
+const handle = createRelayHandler({
+  githubToken: process.env.PEANUT_GALLERY_TOKEN!,
+  repo: process.env.PEANUT_GALLERY_REPO!,
+  allowedOrigins: process.env.PEANUT_GALLERY_ORIGINS?.split(','),
+  sharedKey: process.env.PEANUT_GALLERY_KEY,
+});
+
+export default async (req: Request) => handle(req);

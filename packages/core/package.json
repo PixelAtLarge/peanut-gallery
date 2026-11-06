@@ -1,0 +1,39 @@
+{
+  "name": "@peanut-gallery/core",
+  "version": "0.1.0",
+  "description": "Shared types, DOM anchoring, and GitHub issue serialization for peanut-gallery.",
+  "keywords": [
+    "prototype",
+    "feedback",
+    "annotation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PixelAtLarge/peanut-gallery.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/PixelAtLarge/peanut-gallery#readme",
+  "bugs": {
+    "url": "https://github.com/PixelAtLarge/peanut-gallery/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT"
+}

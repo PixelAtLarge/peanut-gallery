@@ -1,0 +1,5 @@
+node_modules
+dist
+.peanut-gallery/
+*.log
+.DS_Store
