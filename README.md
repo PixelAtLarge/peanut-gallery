@@ -163,6 +163,8 @@ Tell the agent what to build with, and it reads those files before every change,
 ]
 ```
 
+One check is built in: **Undefined CSS classes** flags classes a change adds to markup that no stylesheet defines, i.e. edits with no visible effect. It's on by default and report-only, and skips Tailwind/UnoCSS projects; set `"builtinChecks": { "undefinedClasses": "required" }` to open such PRs as drafts, or `false` to turn it off.
+
 Commands run in the change's worktree with `PEANUT_GALLERY_CHANGED_FILES` (newline-separated), `PEANUT_GALLERY_BASE` and `PEANUT_GALLERY_PROPOSAL` set. They come from your config, which the agent can't edit.
 
 ### Cost guardrails
