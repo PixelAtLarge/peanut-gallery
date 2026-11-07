@@ -44,7 +44,19 @@ describe('completeText via Claude Code login', () => {
       { type: 'assistant', error: 'authentication_failed', message: { content: [{ type: 'text', text: 'Invalid API key · Please run /login' }] } },
       { type: 'result', subtype: 'error_during_execution' },
     ]);
-    await expect(completeText({ system: 's', user: 'u', model: 'm' })).rejects.toThrow(/claude login/);
+    await expect(completeText({ system: 's', user: 'u', model: 'm' })).rejects.toThrow(/\/login/);
+  });
+
+  it('treats an expired login as an auth error, not as the answer (and does not retry)', async () => {
+    const msg = 'Failed to authenticate: OAuth session expired and could not be refreshed';
+    sdk.script.push([say(msg), { type: 'result', subtype: 'success', is_error: true, result: msg }]);
+    await expect(completeJson({ system: 's', user: 'u', model: 'm' })).rejects.toThrow(/\/login[\s\S]*OAuth session expired/);
+    expect(sdk.calls).toHaveLength(1);
+  });
+
+  it('catches login errors even without an error flag', async () => {
+    sdk.script.push([say('Invalid API key · Please run /login'), done('Invalid API key · Please run /login')]);
+    await expect(completeText({ system: 's', user: 'u', model: 'm' })).rejects.toThrow(/\/login/);
   });
 
   it('reports rate limits plainly', async () => {

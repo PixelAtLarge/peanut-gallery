@@ -45,6 +45,7 @@ export async function completeText(opts: { system: string; user: string; model: 
         type: string;
         subtype?: string;
         result?: string;
+        is_error?: boolean;
         error?: string;
         message?: { content?: Array<{ type: string; text?: string }> };
       };
@@ -57,16 +58,22 @@ export async function completeText(opts: { system: string; user: string; model: 
         for (const b of m.message?.content ?? []) if (b.type === 'text' && b.text) text += b.text;
       }
       if (m.type === 'result') {
-        if (m.subtype === 'success' && typeof m.result === 'string') resultText = m.result;
+        // A turn that ended on an API error reports subtype "success" with is_error: true.
+        if (m.subtype === 'success' && !m.is_error && typeof m.result === 'string') resultText = m.result;
         else failure ??= m.result ?? m.subtype;
       }
     }
   } catch (err) {
     failure ??= (err as Error).message;
   }
-  const out = resultText || text;
+  let out = resultText || (failure ? '' : text);
+  // Belt and braces: a short reply that is really a login/billing error, however it arrived.
+  if (out && out.length < 400 && AUTH_ERROR.test(out)) {
+    failure = out;
+    out = '';
+  }
   if (failure && !out) {
-    const auth = /auth|login|credential|oauth|api key/i.test(failure);
+    const auth = AUTH_ERROR.test(failure) || /auth|login|credential|oauth|api key/i.test(failure);
     throw new Error(auth ? `${authHint()}\n(${failure.split('\n')[0]})` : `Claude request failed: ${failure.split('\n')[0]}`);
   }
   if (!out) throw new Error(authHint());
@@ -111,8 +118,10 @@ export async function completeJson<T>(opts: Parameters<typeof completeText>[0]):
   }
 }
 
+const AUTH_ERROR = /^(?:API Error: 40[13]|Failed to authenticate|Invalid API key|Please run \/login|OAuth (?:session|token)|Not logged in|Credit balance is too low|Your organization)/i;
+
 export function authHint(): string {
-  return 'No Claude credentials found. Either run `claude login` (Claude Code) or set ANTHROPIC_API_KEY.';
+  return 'Claude credentials are missing or expired. Open Claude Code (`claude`) and run /login, or set ANTHROPIC_API_KEY.';
 }
 
 /** True if either auth route looks available (cheap check, no network). */
