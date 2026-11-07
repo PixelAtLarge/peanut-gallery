@@ -37,6 +37,9 @@ export interface RunRecord extends ProposalRun {
   issueCommentIds: { issue: number; commentId: number; url: string }[];
   agentSummary?: string;
   costUsd?: number;
+  /** Proposal size and agent model, so later cost estimates can learn from this run. */
+  effort?: Proposal['effort'];
+  model?: string;
   createdAt: string;
   /** Set when this run is one option of a `variants` round. */
   variantOf?: string;
@@ -111,27 +114,56 @@ export async function applyCommand(opts: ApplyOptions = {}): Promise<RunRecord[]
 }
 
 /** Rough per-proposal agent cost by effort, refined by what previous runs actually cost. */
-export function estimateCost(ctx: Pick<RunContext, 'runs'>, effort: Proposal['effort']): number {
-  const base = { small: 0.5, medium: 1.0, large: 2.5 }[effort] ?? 1.0;
+/**
+ * Starting guesses per proposal size, in USD, for the default agent model. Calibrated from real
+ * runs: a small single-component change on a small prototype cost about $0.90 with Sonnet; larger
+ * codebases mean more reading, so the defaults sit a little above that.
+ */
+export const DEFAULT_COST: Record<Proposal['effort'], number> = { small: 1.0, medium: 2.0, large: 4.0 };
+
+export interface CostEstimate {
+  usd: number;
+  /** How many past runs the estimate was learned from (0 = defaults). */
+  basis: number;
+}
+
+/**
+ * Estimate one agent run. With two or more past priced runs (from `.peanut-gallery/runs.json`),
+ * learn a project-specific multiplier: each past cost is divided by its size's default, and the
+ * median ratio of the 20 most recent runs scales this proposal's default. Runs with the same agent
+ * model are preferred when there are enough of them. Older records without a size count as medium.
+ */
+export function estimateCostDetail(ctx: Pick<RunContext, 'runs'>, effort: Proposal['effort'], model?: string): CostEstimate {
+  const base = DEFAULT_COST[effort] ?? DEFAULT_COST.medium;
   const priced = ctx.runs.filter((r) => typeof r.costUsd === 'number' && r.costUsd > 0);
-  if (priced.length < 2) return base;
-  const avg = priced.reduce((a, r) => a + r.costUsd!, 0) / priced.length;
-  // scale the effort weights by observed average (medium ≈ avg)
-  return Math.round(base * (avg / 1.0) * 100) / 100;
+  const sameModel = model ? priced.filter((r) => r.model === model) : [];
+  const pool = (sameModel.length >= 2 ? sameModel : priced).slice(-20);
+  if (pool.length < 2) return { usd: base, basis: 0 };
+  const ratios = pool.map((r) => r.costUsd! / (DEFAULT_COST[r.effort ?? 'medium'] ?? DEFAULT_COST.medium)).sort((x, y) => x - y);
+  const mid = ratios.length / 2;
+  const median = ratios.length % 2 ? ratios[Math.floor(mid)] : (ratios[mid - 1] + ratios[mid]) / 2;
+  return { usd: Math.round(base * median * 100) / 100, basis: pool.length };
+}
+
+export function estimateCost(ctx: Pick<RunContext, 'runs'>, effort: Proposal['effort'], model?: string): number {
+  return estimateCostDetail(ctx, effort, model).usd;
 }
 
 export function withinBudget(ctx: RunContext, effort: Proposal['effort'], budget?: number): boolean {
   if (!budget) return true;
-  const est = estimateCost(ctx, effort);
+  const est = estimateCost(ctx, effort, ctx.cfg.models.apply);
   if (ctx.spent + est <= budget) return true;
   console.log(pc.yellow(`  ⏸ budget: spent $${ctx.spent.toFixed(2)} + est. $${est.toFixed(2)} would exceed $${budget.toFixed(2)} — stopping. Re-run with --budget to continue.`));
   return false;
 }
 
 function printEstimate(ctx: RunContext, proposals: Proposal[], budget?: number) {
-  const rows = proposals.map((p) => ({ p, est: p.contested ? 0 : estimateCost(ctx, p.effort) }));
+  const model = ctx.cfg.models.apply;
+  const rows = proposals.map((p) => ({ p, est: p.contested ? 0 : estimateCost(ctx, p.effort, model) }));
   const total = rows.reduce((a, r) => a + r.est, 0);
-  console.log(pc.dim(`\nestimate (agent ${ctx.cfg.models.apply}): ${rows.map((r) => `${r.p.effort}≈$${r.est.toFixed(2)}`).join(' + ')} ≈ $${total.toFixed(2)}${budget ? ` · budget $${budget.toFixed(2)}` : ''}`));
+  const { basis } = estimateCostDetail(ctx, 'medium', model);
+  const source = basis ? `learned from ${basis} past run${basis === 1 ? '' : 's'}` : 'default rates; learns from your runs';
+  console.log(pc.dim(`\nestimate (agent ${model}, ${source}): ${rows.map((r) => `${r.p.effort}≈$${r.est.toFixed(2)}`).join(' + ')} ≈ $${total.toFixed(2)}${budget ? ` · budget $${budget.toFixed(2)}` : ''}`));
   if (budget && total > budget) console.log(pc.yellow(`estimate exceeds budget; will stop partway. Use --only to pick proposals or raise --budget.`));
 }
 
@@ -185,6 +217,8 @@ export async function runProposal(
     policy: cfg.agent,
     onProgress: (l) => console.log(pc.dim(`    ${l}`)),
   });
+  // Count the spend now: a run that is later discarded or makes no edits still cost money.
+  ctx.spent += agent.costUsd ?? 0;
   const changed = await git(['status', '--porcelain'], wt);
   // Defence in depth: whatever the agent did, a change that touches protected files never becomes a PR.
   const touched = changed.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop()!);
@@ -203,7 +237,6 @@ export async function runProposal(
   }
   await git(['add', '-A'], wt);
   await git(['commit', '-q', '-m', `${p.title}\n\n${p.summary}\n\npeanut-gallery proposal ${p.id}; refs ${p.issueNumbers.map((n) => '#' + n).join(', ')}`], wt);
-  ctx.spent += agent.costUsd ?? 0;
   console.log(pc.green(`  ✔ implemented`) + pc.dim(agent.costUsd ? ` ($${agent.costUsd.toFixed(2)}, ${agent.turns} turns)` : ''));
 
   const record: RunRecord = {
@@ -215,6 +248,8 @@ export async function runProposal(
     status: 'applied',
     agentSummary: agent.summary,
     costUsd: agent.costUsd,
+    effort: p.effort,
+    model: cfg.models.apply,
     createdAt: new Date().toISOString(),
     variantOf: opts.variantOf,
     variantLabel: opts.variantLabel,

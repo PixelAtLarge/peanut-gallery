@@ -36,7 +36,7 @@ Three packages, one CLI:
 - **No local AI.** Nothing runs a model on anyone's machine; every AI step is a Claude API call. No GPU, no downloads.
 - **Reviewers** need a browser. That's it.
 - **The builder** (whoever runs the CLI) needs Node ≥ 20, git, the `gh` CLI (authenticated), a Chromium for screenshots (`npx playwright install chromium`, or `PEANUT_GALLERY_BROWSER=/path/to/chrome`), and Claude credentials: either an existing **Claude Code login** (`claude login` — picked up automatically) or `ANTHROPIC_API_KEY`.
-- **Cost:** interpretation is pennies (Haiku). Each implemented proposal is an agentic coding session — typically **$0.50–2** with Sonnet depending on codebase size; the CLI prints an estimate before it starts and the actual spend after. `variants -n 3` ≈ three proposals.
+- **Cost:** interpretation is pennies (Haiku). Each implemented proposal is an agentic coding session — about **$1 for a small change** with Sonnet (measured: ~$0.90 each on a small prototype), more on bigger codebases; the CLI prints an estimate before it starts and the actual spend after. `variants -n 3` ≈ three proposals.
 
 ---
 
@@ -137,7 +137,7 @@ npx peanut-gallery review        # pull → interpret → confirm → apply
 
 ### Cost guardrails
 
-- `apply --dry-run` / `review --dry-run` print a per-proposal estimate (by effort, refined from what earlier runs actually cost) and exit.
+- `apply --dry-run` / `review --dry-run` print a per-proposal estimate and exit. It starts from defaults (small ≈ $1, medium ≈ $2, large ≈ $4) and, after two runs, learns from what your own runs cost (`.peanut-gallery/runs.json`, same agent model preferred, median so one odd run doesn't skew it). Failed or discarded runs still count toward `--budget`.
 - `--budget 5` (or `budget` in config) stops **before** starting a proposal that would push spend over the cap, so a run never surprises you. Already-built proposals are kept.
 - Per-stage models: cheap model for triage and option generation, stronger model for the code. A single `model` still works as a shortcut for both.
 

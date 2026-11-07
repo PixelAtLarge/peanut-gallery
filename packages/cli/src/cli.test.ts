@@ -234,13 +234,33 @@ describe('models + budget', () => {
     expect(withDefaults({ repo: 'o/r', model: 'x', models: { apply: 'claude-opus-5-5' } }).models).toEqual({ interpret: 'x', apply: 'claude-opus-5-5' });
   });
 
-  it('estimates from effort, then from observed spend', async () => {
-    const { estimateCost } = await import('./commands/apply.js');
-    expect(estimateCost({ runs: [] }, 'small')).toBe(0.5);
-    expect(estimateCost({ runs: [] }, 'large')).toBe(2.5);
-    const runs = [{ costUsd: 2 }, { costUsd: 4 }] as never;
-    expect(estimateCost({ runs }, 'medium')).toBe(3);
-    expect(estimateCost({ runs }, 'small')).toBe(1.5);
+  it('estimates from defaults, then learns from past runs by size and model', async () => {
+    const { estimateCost, estimateCostDetail } = await import('./commands/apply.js');
+    // defaults
+    expect(estimateCost({ runs: [] }, 'small')).toBe(1);
+    expect(estimateCost({ runs: [] }, 'large')).toBe(4);
+    expect(estimateCostDetail({ runs: [] }, 'medium').basis).toBe(0);
+    // one priced run isn't enough to learn from
+    expect(estimateCost({ runs: [{ costUsd: 9, effort: 'small' }] as never }, 'small')).toBe(1);
+    // the real macOS run: four small changes at ~$0.90 → small ≈ $0.90, large scales with it
+    const real = [0.92, 0.88, 0.88, 0.89].map((c) => ({ costUsd: c, effort: 'small', model: 'claude-sonnet-5-5' })) as never;
+    expect(estimateCost({ runs: real }, 'small', 'claude-sonnet-5-5')).toBe(0.89);
+    expect(estimateCost({ runs: real }, 'large', 'claude-sonnet-5-5')).toBe(3.54);
+    expect(estimateCostDetail({ runs: real }, 'small', 'claude-sonnet-5-5').basis).toBe(4);
+    // median shrugs off an outlier
+    const spiky = [1, 1, 1, 20].map((c) => ({ costUsd: c, effort: 'small' })) as never;
+    expect(estimateCost({ runs: spiky }, 'small')).toBe(1);
+    // same-model history wins when there's enough of it
+    const mixed = [
+      { costUsd: 0.2, effort: 'small', model: 'claude-haiku-5-5' },
+      { costUsd: 0.2, effort: 'small', model: 'claude-haiku-5-5' },
+      { costUsd: 3, effort: 'small', model: 'claude-opus-5-5' },
+      { costUsd: 3, effort: 'small', model: 'claude-opus-5-5' },
+    ] as never;
+    expect(estimateCost({ runs: mixed }, 'small', 'claude-haiku-5-5')).toBe(0.2);
+    expect(estimateCost({ runs: mixed }, 'small', 'claude-opus-5-5')).toBe(3);
+    // legacy records without a size count as medium
+    expect(estimateCost({ runs: [{ costUsd: 4 }, { costUsd: 4 }] as never }, 'small')).toBe(2);
   });
 
   it('uses an injected client without any credentials', async () => {
