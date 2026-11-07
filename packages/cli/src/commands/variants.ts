@@ -1,12 +1,11 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { completeText, hasCredentials, authHint } from '../llm.js';
+import { completeJson, hasCredentials, authHint } from '../llm.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
 import type { Proposal } from '@peanut-gallery/core';
 import { readJson, workPath, writeJson } from '../config.js';
 import { commentOnIssue, publishAssets } from '../github.js';
-import { parseJson } from '../interpret.js';
 import { renderOptionsPage, type OptionColumn } from '../compare.js';
 import { renderHtmlToPng } from '../screenshots.js';
 import { createRunContext, runProposal, supportLine, withinBudget, type ApplyOptions, type RunRecord } from './apply.js';
@@ -137,8 +136,7 @@ export async function generateDirections(
     '',
     `Produce exactly ${count} option(s).`,
   ].join('\n');
-  const text = await completeText({ system: SYSTEM, user, model: opts.model, maxTokens: 4000, client: opts.client });
-  const parsed = parseJson(text) as { options: Omit<VariantDirection, 'label'>[] };
+  const parsed = await completeJson<{ options: Omit<VariantDirection, 'label'>[] }>({ system: SYSTEM, user, model: opts.model, maxTokens: 4000, client: opts.client });
   const options = (parsed.options ?? []).slice(0, count);
   if (!options.length) throw new Error('Model returned no options');
   return options.map((o, i) => ({ label: LETTERS[i], title: o.title, summary: o.summary, instructions: o.instructions }));

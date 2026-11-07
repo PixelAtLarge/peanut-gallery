@@ -9,6 +9,6 @@ export { implementProposal } from './agent.js';
 export { renderComparePage, renderSummaryPage } from './compare.js';
 export { captureShots, renderHtmlToPng } from './screenshots.js';
 export { loadConfig, withDefaults, type PeanutGalleryConfig, type ResolvedConfig } from './config.js';
-export { completeText, hasCredentials, authHint } from './llm.js';
+export { completeText, completeJson, extractJson, hasCredentials, authHint } from './llm.js';
 export { estimateCost, withinBudget } from './commands/apply.js';
 export { evaluateToolUse, auditChangedFiles, type AgentPolicy } from './policy.js';

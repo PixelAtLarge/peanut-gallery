@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { completeText } from './llm.js';
+import { completeJson, extractJson } from './llm.js';
 import { uid, type Annotation, type Proposal } from '@peanut-gallery/core';
 import type { FeedbackIssue } from './github.js';
 
@@ -85,9 +85,8 @@ export async function interpret(
     '</reviewer_comments>',
   ].join('\n');
 
-  const text = await completeText({ system: SYSTEM, user, model: opts.model, client: opts.client });
   type RawPosition = { summary: string; instructions: string; annotationIds: string[] };
-  const parsed = parseJson(text) as {
+  const parsed = (await completeJson({ system: SYSTEM, user, model: opts.model, client: opts.client })) as {
     proposals: Array<
       Omit<Proposal, 'id' | 'issueNumbers' | 'pages' | 'focusAnchors' | 'support' | 'contested'> & {
         focusAnchorIds: string[];
@@ -133,13 +132,5 @@ export async function interpret(
 }
 
 export function parseJson(text: string): unknown {
-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
-    throw new Error('Model did not return JSON');
-  }
+  return extractJson(text);
 }
