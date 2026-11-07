@@ -9,6 +9,8 @@ import { addLabels, blobImageUrl, commentOnIssue, createPr, git, type FeedbackIs
 import { flatten, type FlatAnnotation } from '../interpret.js';
 import { authHint, hasCredentials } from '../llm.js';
 import { auditChangedFiles } from '../policy.js';
+import { effectivePolicy, readProjectGuidance } from '../design.js';
+import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { captureShots, renderHtmlToPng, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
@@ -48,6 +50,8 @@ export interface RunRecord extends ProposalRun {
   localCompareDir?: string;
   /** Labels of shot targets, in order, so variant rounds can line up columns. */
   targetLabels?: string[];
+  /** Results of the configured `checks` on this change. */
+  checks?: { name: string; ok: boolean; required: boolean }[];
 }
 
 /** Shared state for a batch of proposal runs (config, annotations, the "before" server). */
@@ -208,13 +212,23 @@ export async function runProposal(
   console.log(pc.dim(`  worktree ${relative(root, wt)} on ${branch}`));
 
   // 2. implement with the agent
-  console.log(pc.dim(`  implementing with ${cfg.models.apply}…`));
+  // Guidance comes from the worktree, i.e. what's committed on the base branch.
+  const guidance = readProjectGuidance(wt, cfg.projectGuidance);
+  const policy = effectivePolicy(cfg.agent, cfg.designSystem);
+  const usingDs = !!cfg.designSystem;
+  console.log(
+    pc.dim(`  implementing with ${cfg.models.apply}…`) +
+      pc.dim([usingDs ? ' design system' : '', guidance.files.length ? ` guidance: ${guidance.files.join(', ')}` : ''].filter(Boolean).join(' ·')),
+  );
   const agent = await (opts.implement ?? implementProposal)(p, annotations, {
     cwd: wt,
     model: cfg.models.apply,
     sourceHints: cfg.sourceHints,
     agentNotes: cfg.agentNotes,
-    policy: cfg.agent,
+    designSystem: cfg.designSystem,
+    projectGuidance: guidance.files.length ? guidance : undefined,
+    policy,
+    readRoots: [join(root, 'node_modules')],
     onProgress: (l) => console.log(pc.dim(`    ${l}`)),
   });
   // Count the spend now: a run that is later discarded or makes no edits still cost money.
@@ -222,7 +236,7 @@ export async function runProposal(
   const changed = await git(['status', '--porcelain'], wt);
   // Defence in depth: whatever the agent did, a change that touches protected files never becomes a PR.
   const touched = changed.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop()!);
-  const violations = auditChangedFiles(touched, cfg.agent ?? {});
+  const violations = auditChangedFiles(touched, policy);
   if (violations.length) {
     console.log(pc.red(`  ✖ change discarded — it touched protected files:\n${violations.map((v) => `    - ${v}`).join('\n')}`));
     await git(['worktree', 'remove', '--force', wt]);
@@ -239,6 +253,17 @@ export async function runProposal(
   await git(['commit', '-q', '-m', `${p.title}\n\n${p.summary}\n\npeanut-gallery proposal ${p.id}; refs ${p.issueNumbers.map((n) => '#' + n).join(', ')}`], wt);
   console.log(pc.green(`  ✔ implemented`) + pc.dim(agent.costUsd ? ` ($${agent.costUsd.toFixed(2)}, ${agent.turns} turns)` : ''));
 
+  // 2b. your checks (drift checker, linter, a11y…) on the committed change
+  let checkResults: CheckResult[] = [];
+  if (cfg.checks?.length) {
+    checkResults = await runChecks(cfg.checks, wt, { changedFiles: touched, base: cfg.baseBranch, proposalId: p.id });
+    for (const r of checkResults) {
+      const line = `  ${r.ok ? '✔' : r.required ? '✖' : '⚠'} check: ${r.name}${r.ok ? '' : r.timedOut ? ' (timed out)' : ` (exit ${r.exitCode ?? '?'})`}`;
+      console.log(r.ok ? pc.green(line) : r.required ? pc.red(line) : pc.yellow(line));
+    }
+  }
+  const requiredFailed = checkResults.filter((r) => r.required && !r.ok);
+
   const record: RunRecord = {
     proposalId: p.id,
     title: p.title,
@@ -253,6 +278,7 @@ export async function runProposal(
     createdAt: new Date().toISOString(),
     variantOf: opts.variantOf,
     variantLabel: opts.variantLabel,
+    checks: checkResults.length ? checkResults.map((r) => ({ name: r.name, ok: r.ok, required: r.required })) : undefined,
   };
 
   // 3. before/after screenshots
@@ -307,7 +333,12 @@ export async function runProposal(
       '### What changed',
       agent.summary,
       agent.denied.length ? `\n<details><summary>${agent.denied.length} tool call(s) blocked by policy</summary>\n\n${agent.denied.map((d) => `- ${d}`).join('\n')}\n</details>` : '',
+      usingDs || guidance.files.length
+        ? `\n<sub>Built with ${[usingDs ? 'the configured design system' : '', guidance.files.length ? `guidance from ${guidance.files.join(', ')}` : ''].filter(Boolean).join(' and ')}.</sub>`
+        : '',
       '',
+      requiredFailed.length ? `> ❌ Opened as a draft: required check${requiredFailed.length > 1 ? 's' : ''} failed (${requiredFailed.map((r) => r.name).join(', ')}).\n` : '',
+      checksMarkdown(checkResults),
       '### Reviewer feedback addressed',
       ...annotations.filter((a) => p.annotationIds.includes(a.id)).map((a) => `- #${a.issueNumber}: “${a.text.split('\n')[0]}” _(${a.reviewer})_`),
       '',
@@ -317,7 +348,7 @@ export async function runProposal(
       '',
       `<sub>Generated by peanut-gallery · proposal \`${p.id}\` · effort ${p.effort} · confidence ${(p.confidence * 100).toFixed(0)}%</sub>`,
     ].join('\n');
-    const pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title: opts.variantLabel ? `${p.title} (option ${opts.variantLabel})` : p.title, body, cwd: wt, draft: opts.draft });
+    const pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title: opts.variantLabel ? `${p.title} (option ${opts.variantLabel})` : p.title, body, cwd: wt, draft: opts.draft || requiredFailed.length > 0 });
     record.prUrl = pr.url;
     record.prNumber = pr.number;
     record.status = 'pr-opened';

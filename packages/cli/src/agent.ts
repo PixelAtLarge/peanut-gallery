@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Proposal } from '@peanut-gallery/core';
 import type { FlatAnnotation } from './interpret.js';
 import { evaluateToolUse, type AgentPolicy } from './policy.js';
+import { designSystemBrief, type DesignSystemConfig } from './design.js';
 
 export interface AgentRunResult {
   ok: boolean;
@@ -20,9 +21,25 @@ export interface AgentRunResult {
 export async function implementProposal(
   proposal: Proposal,
   annotations: FlatAnnotation[],
-  opts: { cwd: string; model: string; sourceHints: string[]; agentNotes?: string; maxTurns?: number; policy?: AgentPolicy; onProgress?: (line: string) => void },
+  opts: {
+    cwd: string;
+    model: string;
+    sourceHints: string[];
+    agentNotes?: string;
+    /** Which design system to build with (see DesignSystemConfig). */
+    designSystem?: DesignSystemConfig;
+    /** The maintainers' written guidance (CLAUDE.md etc.) as plain text. */
+    projectGuidance?: { files: string[]; text: string };
+    maxTurns?: number;
+    policy?: AgentPolicy;
+    /** Extra places reads may resolve to, e.g. the main checkout's node_modules. */
+    readRoots?: string[];
+    onProgress?: (line: string) => void;
+  },
 ): Promise<AgentRunResult> {
   const anns = annotations.filter((a) => proposal.annotationIds.includes(a.id));
+  const ds = designSystemBrief(opts.designSystem);
+  const guidance = opts.projectGuidance?.text?.trim();
   const prompt = `You are implementing ONE design change in this prototype's codebase, requested by reviewers.
 
 ## Change: ${proposal.title}
@@ -46,11 +63,20 @@ ${anns
 
 ## Where the UI code lives
 ${opts.sourceHints.map((h) => `- ${h}`).join('\n')}
-${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}
+${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}${ds ? `\n${ds}\n` : ''}${
+    guidance
+      ? `\n## Project guidance (from ${opts.projectGuidance!.files.join(', ')}, written by this repo's maintainers)
+Follow its coding and design conventions. Where it asks for commands, tools or steps you don't have here, skip them; the Rules below still apply.
+<project_guidance>
+${guidance}
+</project_guidance>
+`
+      : ''
+  }
 ## Rules
 - Find the component/markup that renders the referenced element (search by the selector, data-testid, id, class names, and visible text).
 - Make the smallest change that fully satisfies the spec. Do not refactor, rename, or touch unrelated files.
-- Follow the project's existing conventions (styling approach, component patterns, tokens/design system).
+- Follow the project's existing conventions (styling approach, component patterns, tokens/design system)${ds ? ', as described in the Design system section' : ''}.
 - Keep accessibility intact (labels, contrast, focus states).
 - You can only read, search and edit files in this folder. Shell commands, dependency changes, CI files, git internals and secrets are blocked by policy; if the change seems to need one of those, stop and say so in your summary instead.
 - Do not commit; the tool commits for you.
@@ -74,7 +100,7 @@ ${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}
       // Every call is decided by our policy (no blanket auto-accept).
       permissionMode: 'default',
       canUseTool: async (toolName, input) => {
-        const d = evaluateToolUse(toolName, input, { cwd: opts.cwd, policy });
+        const d = evaluateToolUse(toolName, input, { cwd: opts.cwd, policy, readRoots: opts.readRoots });
         if (d.allow) return { behavior: 'allow', updatedInput: input };
         denied.push(`${toolName}: ${d.reason}`);
         opts.onProgress?.(`✋ blocked ${toolName} — ${d.reason}`);
@@ -88,7 +114,7 @@ ${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}
             hooks: [
               async (input) => {
                 const i = input as { tool_name?: string; tool_input?: unknown };
-                const d = evaluateToolUse(String(i.tool_name), (i.tool_input ?? {}) as Record<string, unknown>, { cwd: opts.cwd, policy });
+                const d = evaluateToolUse(String(i.tool_name), (i.tool_input ?? {}) as Record<string, unknown>, { cwd: opts.cwd, policy, readRoots: opts.readRoots });
                 if (d.allow) return {};
                 if (!denied.some((x) => x.endsWith(String(d.reason)))) denied.push(`${i.tool_name}: ${d.reason}`);
                 return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Blocked by peanut-gallery policy: ${d.reason}` } };

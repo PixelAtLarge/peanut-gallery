@@ -12,3 +12,5 @@ export { loadConfig, withDefaults, type PeanutGalleryConfig, type ResolvedConfig
 export { completeText, completeJson, extractJson, hasCredentials, authHint } from './llm.js';
 export { estimateCost, estimateCostDetail, withinBudget, DEFAULT_COST } from './commands/apply.js';
 export { evaluateToolUse, auditChangedFiles, type AgentPolicy } from './policy.js';
+export { designSystemBrief, designSystemSummary, detectDesignSystem, effectivePolicy, readProjectGuidance, type DesignSystemConfig } from './design.js';
+export { runChecks, checksMarkdown, type CheckConfig, type CheckResult } from './checks.js';

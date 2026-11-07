@@ -4,6 +4,7 @@ import pc from 'picocolors';
 import { LABELS } from '@peanut-gallery/core';
 import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
 import { ensureLabels, gh, git } from '../github.js';
+import { detectDesignSystem } from '../design.js';
 
 export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string }) {
   if (existsSync(CONFIG_FILE) && !opts.yes) {
@@ -36,6 +37,7 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
   rl?.close();
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must look like owner/name');
 
+  const found = detectDesignSystem(process.cwd());
   const cfg: PeanutGalleryConfig = {
     repo,
     prototypeUrl: prototypeUrl || undefined,
@@ -43,6 +45,9 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
     dev: { command: devCommand, port: 4310 },
     sourceHints: ['src/**'],
     agentNotes: '',
+    ...(found.tokens.length || found.docs.length
+      ? { designSystem: { ...(found.tokens.length ? { tokens: found.tokens } : {}), ...(found.docs.length ? { docs: found.docs } : {}), rules: '' } }
+      : {}),
     models: { interpret: 'claude-haiku-5-5', apply: 'claude-sonnet-5-5' },
     budget: 10,
     screenshot: { width: 1280, height: 800 },
@@ -50,6 +55,12 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
   writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n');
   ensureWorkDir();
   console.log(pc.green(`✔ wrote ${CONFIG_FILE}`));
+  if (found.tokens.length || found.docs.length) {
+    console.log(pc.green(`✔ design system: found ${[...found.tokens, ...found.docs].join(', ')}`) + pc.dim(` — check "designSystem" in ${CONFIG_FILE}; add your component package and rules`));
+  } else {
+    console.log(pc.dim(`  No token files found. If you use a design system, add a "designSystem" block to ${CONFIG_FILE} (see README).`));
+  }
+  if (found.guidance.length) console.log(pc.green(`✔ the agent will also read ${found.guidance.join(', ')}`) + pc.dim(' (as text only)'));
 
   await ensureLabels(repo, [
     { name: LABELS.root, color: '1E4D36', description: 'Created by peanut-gallery' },
@@ -70,7 +81,7 @@ ${pc.bold('Add the widget to your prototype:')}
 
 ${pc.bold('Then, in this repo:')}
   ${pc.cyan('npx playwright install chromium')}   ${pc.dim('(once, for screenshots)')}
-  ${pc.cyan('claude login')}  ${pc.dim('(Claude Code) — or export ANTHROPIC_API_KEY=…')}
+  ${pc.cyan('claude')} ${pc.dim('then /login (Claude Code) — or export ANTHROPIC_API_KEY=…')}
   ${pc.cyan('npx peanut-gallery review')}            ${pc.dim('pull → interpret → implement → before/after → PRs')}
 `);
 }

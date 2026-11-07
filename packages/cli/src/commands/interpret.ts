@@ -4,6 +4,7 @@ import { loadConfig, readJson, workPath, writeJson } from '../config.js';
 import type { FeedbackIssue } from '../github.js';
 import { flatten, interpret } from '../interpret.js';
 import { authHint, hasCredentials } from '../llm.js';
+import { designSystemSummary } from '../design.js';
 
 export async function interpretCommand(opts: { issues?: FeedbackIssue[]; quiet?: boolean } = {}): Promise<Proposal[]> {
   const cfg = loadConfig();
@@ -15,7 +16,7 @@ export async function interpretCommand(opts: { issues?: FeedbackIssue[]; quiet?:
   if (!(await hasCredentials())) throw new Error(authHint());
   const flat = flatten(issues);
   if (!opts.quiet) console.log(pc.dim(`interpreting ${flat.length} comment(s) with ${cfg.models.interpret}…`));
-  const { proposals, skipped } = await interpret(flat, { model: cfg.models.interpret, agentNotes: cfg.agentNotes });
+  const { proposals, skipped } = await interpret(flat, { model: cfg.models.interpret, agentNotes: cfg.agentNotes, designNotes: designSystemSummary(cfg.designSystem) });
   writeJson(workPath('proposals.json'), proposals);
   if (!opts.quiet) printProposals(proposals, skipped, flat.length);
   return proposals;

@@ -2,6 +2,8 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveTheme, type Theme } from '@peanut-gallery/core';
 import type { AgentPolicy } from './policy.js';
+import type { DesignSystemConfig } from './design.js';
+import type { CheckConfig } from './checks.js';
 
 export interface DevServerConfig {
   /** Command to start the prototype locally. `{port}` is substituted. e.g. "npm run dev -- --port {port}" */
@@ -23,8 +25,25 @@ export interface PeanutGalleryConfig {
   dev?: DevServerConfig;
   /** Globs hinting where UI source lives, passed to the coding agent. */
   sourceHints?: string[];
-  /** Extra guidance for the coding agent (design system notes, conventions). */
+  /** Extra guidance for the coding agent (conventions, gotchas). */
   agentNotes?: string;
+  /**
+   * The design system to build with: component packages, token files, component folders, docs
+   * and rules. Token and doc files are read before every change and protected from edits unless
+   * `allowEdits` is true.
+   */
+  designSystem?: DesignSystemConfig;
+  /**
+   * Pass the maintainers' written guidance to the agent as plain text. Default true, which reads
+   * CLAUDE.md, AGENTS.md and .claude/CLAUDE.md if present; or list your own files; false to skip.
+   * Claude Code settings, hooks and permissions are never loaded either way.
+   */
+  projectGuidance?: boolean | string[];
+  /**
+   * Commands run on each change before its PR opens (drift checker, linter, a11y scan). Results
+   * are reported in the PR; a failing `required` check opens the PR as a draft.
+   */
+  checks?: CheckConfig[];
   /** Single model for everything (overridden by `models`). */
   model?: string;
   /** Per-stage models. Defaults: interpret/variants/votes → claude-haiku-5-5; apply (coding agent) → claude-sonnet-5-5. Try claude-opus-5-5 for large codebases. */

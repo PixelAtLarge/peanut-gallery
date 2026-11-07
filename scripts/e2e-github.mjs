@@ -56,10 +56,31 @@ if (!existsSync('index.html')) {
 }
 check('sandbox repo has the example prototype on main', existsSync('index.html'));
 
+// Design system: tokens in their own file + maintainer guidance in CLAUDE.md (once per sandbox).
+if (!existsSync('tokens.css')) {
+  const css = readFileSync('styles.css', 'utf8').split('\n');
+  const i = css.findIndex((l) => l.startsWith(':root'));
+  writeFileSync('tokens.css', `/* Design tokens. Use these variables; don't add raw colours. */\n${css[i]}\n:root { --success: #0f7b52; --on-accent: #ffffff; --radius: 12px; --radius-pill: 999px; }\n`);
+  css.splice(i, 1);
+  writeFileSync('styles.css', css.join('\n'));
+  writeFileSync('index.html', readFileSync('index.html', 'utf8').replace(/(<link[^>]*styles\.css[^>]*>)/, '<link rel="stylesheet" href="tokens.css">\n  $1'));
+  writeFileSync('CLAUDE.md', '# Checkout prototype\n\n- Colours, radii and spacing come from the CSS variables in `tokens.css`. Never hard-code hex values.\n- Buttons use the `.btn` class; primary actions add a modifier class rather than inline styles.\n');
+  sh('git', ['add', '-A']);
+  sh('git', ['-c', 'user.name=peanut-gallery-e2e', '-c', 'user.email=e2e@peanut-gallery.invalid', 'commit', '-q', '-m', 'Move design tokens to tokens.css; add CLAUDE.md']);
+  sh('git', ['push', '-q', 'origin', 'HEAD:main']);
+}
+
 sh('node', [CLI, 'init', '--yes', '--repo', SANDBOX, '--prototype-url', '', '--dev', 'python3 -m http.server {port} --bind 127.0.0.1']);
 const cfg = JSON.parse(readFileSync('peanut-gallery.config.json', 'utf8'));
+check('init detected the design tokens', cfg.designSystem?.tokens?.includes('tokens.css'), JSON.stringify(cfg.designSystem?.tokens));
 cfg.sourceHints = ['index.html', 'styles.css'];
 cfg.agentNotes = 'Static HTML prototype; styles in styles.css.';
+cfg.designSystem.rules = 'One primary action per screen. Use --accent for primary buttons.';
+// A tiny drift check: flags raw hex colours added by the change (stand-in for off-brand).
+cfg.checks = [{
+  name: 'Raw colour drift',
+  command: 'out=$(git diff -U0 "$PEANUT_GALLERY_BASE"...HEAD -- "*.css" "*.html" | grep -E "^\\+[^+].*#[0-9a-fA-F]{3,8}"); if [ -n "$out" ]; then echo "Raw colours added (use tokens.css):"; echo "$out"; exit 1; fi; echo "No raw colours added."',
+}];
 delete cfg.prototypeUrl;
 writeFileSync('peanut-gallery.config.json', JSON.stringify(cfg, null, 2) + '\n');
 const labels = JSON.parse(gh('api', `repos/${SANDBOX}/labels?per_page=100`)).map((l) => l.name);
@@ -146,6 +167,12 @@ check('before/after screenshots + compare page were generated', run?.screenshots
 check('a pull request was opened', run?.prUrl?.includes('/pull/'), run?.prUrl);
 const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${run.prNumber}/files`)).map((f) => f.filename);
 check('PR contains the code change and the comparison assets', prFiles.some((f) => f === 'index.html' || f === 'styles.css') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
+const prBody = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${run.prNumber}`)).body ?? '';
+check(
+  'PR reports the design-system check and guidance',
+  prBody.includes('### Checks') && prBody.includes('Raw colour drift') && prBody.includes('guidance from CLAUDE.md') && (REAL_AI || prBody.includes('⚠️ **Raw colour drift**')),
+  (prBody.match(/(✅|⚠️|❌) \*\*Raw colour drift\*\*[^\n]*/) ?? ['no checks line'])[0],
+);
 const comments = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}/comments`));
 check('comparison + vote prompt were posted back on the issue', comments.some((c) => c.body.includes('Which do you prefer?') && c.body.includes(run.prUrl)));
 

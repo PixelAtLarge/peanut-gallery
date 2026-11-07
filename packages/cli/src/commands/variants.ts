@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { completeJson, hasCredentials, authHint } from '../llm.js';
+import { designSystemSummary } from '../design.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
@@ -45,7 +46,7 @@ export async function variantsCommand(id: string, opts: VariantsOptions = {}): P
 
   console.log(pc.bold(`\n━━ ${p.title} ${pc.dim(`[${p.id}] ${supportLine(p)}`)}`));
   console.log(pc.dim(`  generating ${count} option(s)${opts.note ? ` — note: "${opts.note}"` : ''}…`));
-  const directions = opts.directions ?? (await generateDirections(p, previous, count, { model: ctx.cfg.models.interpret, note: opts.note, agentNotes: ctx.cfg.agentNotes, client: opts.client }));
+  const directions = opts.directions ?? (await generateDirections(p, previous, count, { model: ctx.cfg.models.interpret, note: opts.note, agentNotes: ctx.cfg.agentNotes, designNotes: designSystemSummary(ctx.cfg.designSystem), client: opts.client }));
   directions.forEach((d, i) => (d.label = `${LETTERS[i]}${round > 1 ? round : ''}`));
   directions.forEach((d) => console.log(`  ${pc.bold(d.label)}  ${d.title} ${pc.dim(`— ${d.summary}`)}`));
 
@@ -120,7 +121,7 @@ export async function generateDirections(
   p: Proposal,
   previous: RunRecord[],
   count: number,
-  opts: { model: string; note?: string; agentNotes?: string; client?: Anthropic },
+  opts: { model: string; note?: string; agentNotes?: string; designNotes?: string; client?: Anthropic },
 ): Promise<VariantDirection[]> {
   const tried = previous.filter((r) => r.agentSummary).map((r) => `- ${r.variantLabel ? `option ${r.variantLabel}` : 'first attempt'}: ${r.agentSummary}`);
   const user = [
@@ -133,6 +134,7 @@ export async function generateDirections(
     tried.length ? `\nAlready tried (do not repeat):\n${tried.join('\n')}` : '',
     opts.note ? `\nBuilder's note (hard constraint): ${opts.note}` : '',
     opts.agentNotes ? `\nProject notes: ${opts.agentNotes}` : '',
+    opts.designNotes ? `\nDesign system: ${opts.designNotes} Options may differ in emphasis, layout and which existing variants they use, but must not invent new colours, sizes or components.` : '',
     '',
     `Produce exactly ${count} option(s).`,
   ].join('\n');

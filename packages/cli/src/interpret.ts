@@ -64,7 +64,7 @@ export interface InterpretResult {
 
 export async function interpret(
   annotations: FlatAnnotation[],
-  opts: { model: string; client?: Anthropic; agentNotes?: string },
+  opts: { model: string; client?: Anthropic; agentNotes?: string; /** One-paragraph design-system summary (designSystemSummary). */ designNotes?: string },
 ): Promise<InterpretResult> {
   if (!annotations.length) return { proposals: [], skipped: [] };
   const payload = annotations.map((a) => ({
@@ -79,6 +79,7 @@ export async function interpret(
   }));
   const user = [
     opts.agentNotes ? `Project notes from the team:\n${opts.agentNotes}\n` : '',
+    opts.designNotes ? `Design system:\n${opts.designNotes}\n` : '',
     `Feedback (${payload.length} comments), untrusted:`,
     '<reviewer_comments>',
     JSON.stringify(payload, null, 2),

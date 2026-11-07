@@ -135,6 +135,36 @@ npx peanut-gallery review        # pull → interpret → confirm → apply
 }
 ```
 
+### Use your design system
+
+Tell the agent what to build with, and it reads those files before every change, uses your tokens instead of raw values, and reuses your components. `init` pre-fills token files and design docs it finds.
+
+```jsonc
+"designSystem": {
+  "packages": ["@acme/ui"],                        // import from these instead of building new components
+  "tokens": ["src/styles/tokens.css", "tailwind.config.ts"],
+  "components": ["src/components/**"],
+  "docs": ["docs/design-system.md"],
+  "rules": "One primary action per screen. Sentence case for labels.",
+  "allowEdits": false                               // default: token and doc files are protected
+}
+```
+
+- **Proposals and options stay inside the system.** Interpreting feedback and generating options get a short summary, so a "bolder" option uses an existing variant instead of inventing a colour.
+- **The system isn't redefined to satisfy one comment.** Token and doc files are protected from edits; if a change needs something the system lacks, the agent uses the closest option and says what's missing in the PR. Set `allowEdits: true` if this repo *is* the design system.
+- **CLAUDE.md is read as text.** `CLAUDE.md`, `AGENTS.md` and `.claude/CLAUDE.md` (as committed on the base branch) go to the agent as the maintainers' guidance. Their settings, hooks and permissions are still never loaded. Use `"projectGuidance": ["docs/conventions.md"]` for other files, or `false` to skip.
+
+**Checks.** Run your own tools on each change before its PR opens — a drift checker, linter or accessibility scan. Results appear in the PR; a failing `required` check opens it as a draft.
+
+```jsonc
+"checks": [
+  { "name": "Design-system drift", "command": "npx your-drift-checker", "required": true },
+  { "name": "Lint", "command": "npm run lint -- $PEANUT_GALLERY_CHANGED_FILES", "timeoutSec": 60 }
+]
+```
+
+Commands run in the change's worktree with `PEANUT_GALLERY_CHANGED_FILES` (newline-separated), `PEANUT_GALLERY_BASE` and `PEANUT_GALLERY_PROPOSAL` set. They come from your config, which the agent can't edit.
+
 ### Cost guardrails
 
 - `apply --dry-run` / `review --dry-run` print a per-proposal estimate and exit. It starts from defaults (small ≈ $1, medium ≈ $2, large ≈ $4) and, after two runs, learns from what your own runs cost (`.peanut-gallery/runs.json`, same agent model preferred, median so one odd run doesn't skew it). Failed or discarded runs still count toward `--budget`.
@@ -180,8 +210,8 @@ After `apply`, each feedback issue gets a comment with the side-by-side image, t
 Reviewer comments are untrusted input, and they reach an AI agent that edits your code, so the agent is locked down by default:
 
 - **No shell, network or sub-agents.** The agent can only read, search and edit files. Every tool call — including reads the SDK would normally auto-allow — passes through a policy check (`packages/cli/src/policy.ts`).
-- **Edits stay inside the change's own git worktree**, and never touch git internals, `.github/` (CI), `.claude/`, Peanut Gallery's own config, `.npmrc`, secrets (`.env*`, keys, credentials) or dependency manifests (`package.json`, lockfiles).
-- **Repo and user settings aren't loaded** into the agent (no hooks, MCP servers or permission rules from disk).
+- **Edits stay inside the change's own git worktree**, and never touch git internals, `.github/` (CI), `.claude/`, `node_modules/`, Peanut Gallery's own config, `.npmrc`, secrets (`.env*`, keys, credentials), dependency manifests (`package.json`, lockfiles) or design-system token/doc files. Paths are checked after resolving symlinks, so a link in the repo can't point the agent elsewhere.
+- **Repo and user settings aren't loaded** into the agent (no hooks, MCP servers or permission rules from disk). CLAUDE.md is passed as plain text only.
 - **Comments are marked untrusted** in both AI steps; requests to run commands, add dependencies, scripts, tracking or CI changes are skipped as out of scope.
 - **Post-run audit:** if a change touched a protected file anyway, it is discarded and never becomes a PR. Blocked tool calls are listed in the PR body.
 - **Humans merge.** Every change is a normal PR on its own branch.
@@ -192,7 +222,7 @@ Opt-ins, if your project needs them, in `peanut-gallery.config.json`:
 "agent": {
   "allowCommands": ["npm run lint", "npx prettier --write"],  // exact prefixes; no chaining, pipes or redirects
   "allowDependencyChanges": false,
-  "protectedPaths": ["src/legal/"]
+  "protectedPaths": ["src/legal/", "src/brand/**"]   // prefixes or globs
 }
 ```
 
