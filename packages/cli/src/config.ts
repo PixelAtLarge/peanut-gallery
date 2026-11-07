@@ -44,6 +44,12 @@ export interface PeanutGalleryConfig {
    * are reported in the PR; a failing `required` check opens the PR as a draft.
    */
   checks?: CheckConfig[];
+  /**
+   * Checks built into Peanut Gallery. `undefinedClasses` flags CSS classes a change adds to markup
+   * that no stylesheet defines (skipped automatically for Tailwind/UnoCSS projects). Default on,
+   * report-only; set to "required" to open such PRs as drafts, or false to turn it off.
+   */
+  builtinChecks?: { undefinedClasses?: boolean | 'required' };
   /** Single model for everything (overridden by `models`). */
   model?: string;
   /** Per-stage models. Defaults: interpret/variants/votes → claude-haiku-5-5; apply (coding agent) → claude-sonnet-5-5. Try claude-opus-5-5 for large codebases. */

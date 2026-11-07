@@ -11,6 +11,7 @@ import { authHint, hasCredentials } from '../llm.js';
 import { auditChangedFiles } from '../policy.js';
 import { effectivePolicy, readProjectGuidance } from '../design.js';
 import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
+import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { captureShots, renderHtmlToPng, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
@@ -255,8 +256,13 @@ export async function runProposal(
 
   // 2b. your checks (drift checker, linter, a11y…) on the committed change
   let checkResults: CheckResult[] = [];
-  if (cfg.checks?.length) {
-    checkResults = await runChecks(cfg.checks, wt, { changedFiles: touched, base: cfg.baseBranch, proposalId: p.id });
+  const undefinedSetting = cfg.builtinChecks?.undefinedClasses ?? true;
+  if (undefinedSetting) {
+    const r = await undefinedClassesCheck(wt, cfg.baseBranch, { required: undefinedSetting === 'required' });
+    if (r) checkResults.push(r);
+  }
+  if (cfg.checks?.length) checkResults.push(...(await runChecks(cfg.checks, wt, { changedFiles: touched, base: cfg.baseBranch, proposalId: p.id })));
+  if (checkResults.length) {
     for (const r of checkResults) {
       const line = `  ${r.ok ? '✔' : r.required ? '✖' : '⚠'} check: ${r.name}${r.ok ? '' : r.timedOut ? ' (timed out)' : ` (exit ${r.exitCode ?? '?'})`}`;
       console.log(r.ok ? pc.green(line) : r.required ? pc.red(line) : pc.yellow(line));

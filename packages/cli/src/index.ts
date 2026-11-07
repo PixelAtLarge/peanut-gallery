@@ -14,3 +14,4 @@ export { estimateCost, estimateCostDetail, withinBudget, DEFAULT_COST } from './
 export { evaluateToolUse, auditChangedFiles, type AgentPolicy } from './policy.js';
 export { designSystemBrief, designSystemSummary, detectDesignSystem, effectivePolicy, readProjectGuidance, type DesignSystemConfig } from './design.js';
 export { runChecks, checksMarkdown, type CheckConfig, type CheckResult } from './checks.js';
+export { undefinedClassesCheck } from './builtin-checks.js';

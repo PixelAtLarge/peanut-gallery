@@ -173,6 +173,11 @@ check(
   prBody.includes('### Checks') && prBody.includes('Raw colour drift') && prBody.includes('guidance from CLAUDE.md') && (REAL_AI || prBody.includes('⚠️ **Raw colour drift**')),
   (prBody.match(/(✅|⚠️|❌) \*\*Raw colour drift\*\*[^\n]*/) ?? ['no checks line'])[0],
 );
+check(
+  'built-in check: every class the change added is styled',
+  prBody.includes('✅ **Undefined CSS classes**'),
+  (prBody.match(/(✅|⚠️|❌) \*\*Undefined CSS classes\*\*[^\n]*/) ?? ['no undefined-classes line'])[0],
+);
 const comments = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}/comments`));
 check('comparison + vote prompt were posted back on the issue', comments.some((c) => c.body.includes('Which do you prefer?') && c.body.includes(run.prUrl)));
 

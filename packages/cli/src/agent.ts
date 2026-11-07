@@ -77,6 +77,8 @@ ${guidance}
 - Find the component/markup that renders the referenced element (search by the selector, data-testid, id, class names, and visible text).
 - Make the smallest change that fully satisfies the spec. Do not refactor, rename, or touch unrelated files.
 - Follow the project's existing conventions (styling approach, component patterns, tokens/design system)${ds ? ', as described in the Design system section' : ''}.
+- Every class you add to markup must already be defined in the project's styles, or be defined in this same change. Before adding one, search for an existing class that does the job, and follow the naming pattern already in the code (e.g. \`btn--primary\` vs \`btn-primary\`). A class with no styles has no visible effect.
+- Don't copy values that the page already shows or computes elsewhere (a price, a total, a name) into a new hard-coded literal; reuse or reference the existing one so they can't drift apart.
 - Keep accessibility intact (labels, contrast, focus states).
 - You can only read, search and edit files in this folder. Shell commands, dependency changes, CI files, git internals and secrets are blocked by policy; if the change seems to need one of those, stop and say so in your summary instead.
 - Do not commit; the tool commits for you.
