@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveTheme, type Theme } from '@peanut-gallery/core';
+import type { AgentPolicy } from './policy.js';
 
 export interface DevServerConfig {
   /** Command to start the prototype locally. `{port}` is substituted. e.g. "npm run dev -- --port {port}" */
@@ -28,6 +29,11 @@ export interface PeanutGalleryConfig {
   model?: string;
   /** Per-stage models. Defaults: interpret/variants/votes → claude-haiku-5-5; apply (coding agent) → claude-sonnet-5-5. Try claude-opus-5-5 for large codebases. */
   models?: { interpret?: string; apply?: string };
+  /**
+   * What the coding agent may do. Default: read/search/edit source files in the worktree only.
+   * e.g. { "allowCommands": ["npm run lint"], "allowDependencyChanges": false }
+   */
+  agent?: AgentPolicy;
   /** Override colours/fonts of the generated comparison pages (defaults to the Conifer / Prep / Wasabi palette). */
   theme?: Partial<Theme>;
   /** Default spend cap in USD per `apply`/`review`/`variants` invocation (CLI --budget overrides). */

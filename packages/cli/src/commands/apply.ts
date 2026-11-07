@@ -8,6 +8,7 @@ import { startDevServer, type RunningServer } from '../devserver.js';
 import { addLabels, blobImageUrl, commentOnIssue, createPr, git, type FeedbackIssue } from '../github.js';
 import { flatten, type FlatAnnotation } from '../interpret.js';
 import { authHint, hasCredentials } from '../llm.js';
+import { auditChangedFiles } from '../policy.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { captureShots, renderHtmlToPng, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
@@ -25,6 +26,8 @@ export interface ApplyOptions {
   /** Print the cost estimate and exit without building. */
   dryRun?: boolean;
   port?: number;
+  /** Swap the coding agent (tests/e2e harness). Defaults to the Claude Agent SDK. */
+  implement?: typeof implementProposal;
   proposals?: Proposal[];
   issues?: FeedbackIssue[];
 }
@@ -174,14 +177,24 @@ export async function runProposal(
 
   // 2. implement with the agent
   console.log(pc.dim(`  implementing with ${cfg.models.apply}…`));
-  const agent = await implementProposal(p, annotations, {
+  const agent = await (opts.implement ?? implementProposal)(p, annotations, {
     cwd: wt,
     model: cfg.models.apply,
     sourceHints: cfg.sourceHints,
     agentNotes: cfg.agentNotes,
+    policy: cfg.agent,
     onProgress: (l) => console.log(pc.dim(`    ${l}`)),
   });
   const changed = await git(['status', '--porcelain'], wt);
+  // Defence in depth: whatever the agent did, a change that touches protected files never becomes a PR.
+  const touched = changed.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop()!);
+  const violations = auditChangedFiles(touched, cfg.agent ?? {});
+  if (violations.length) {
+    console.log(pc.red(`  ✖ change discarded — it touched protected files:\n${violations.map((v) => `    - ${v}`).join('\n')}`));
+    await git(['worktree', 'remove', '--force', wt]);
+    await git(['branch', '-D', branch]).catch(() => {});
+    return null;
+  }
   if (!agent.ok || !changed) {
     console.log(pc.red(`  ✖ no changes produced (${agent.ok ? 'agent made no edits' : agent.summary})`));
     await git(['worktree', 'remove', '--force', wt]);
@@ -258,6 +271,7 @@ export async function runProposal(
       '',
       '### What changed',
       agent.summary,
+      agent.denied.length ? `\n<details><summary>${agent.denied.length} tool call(s) blocked by policy</summary>\n\n${agent.denied.map((d) => `- ${d}`).join('\n')}\n</details>` : '',
       '',
       '### Reviewer feedback addressed',
       ...annotations.filter((a) => p.annotationIds.includes(a.id)).map((a) => `- #${a.issueNumber}: “${a.text.split('\n')[0]}” _(${a.reviewer})_`),

@@ -1,6 +1,6 @@
 # Peanut Gallery 🥜
 
-> Everyone's a critic. Now their critiques ship.
+> Where feedback actually ships.
 
 Annotate a hosted prototype → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
@@ -175,6 +175,27 @@ Everything is reviewable and reversible: proposals are a JSON file you can edit 
 
 After `apply`, each feedback issue gets a comment with the side-by-side image, the PR link and a vote prompt. Reviewers react or reply in plain language; `votes` reads it back. For a live "after", point reviewers at the PR's preview deployment (Vercel/Netlify/Pages) with `?peanut` — they can annotate the new version and the loop runs again.
 
+## Security model
+
+Reviewer comments are untrusted input, and they reach an AI agent that edits your code, so the agent is locked down by default:
+
+- **No shell, network or sub-agents.** The agent can only read, search and edit files. Every tool call — including reads the SDK would normally auto-allow — passes through a policy check (`packages/cli/src/policy.ts`).
+- **Edits stay inside the change's own git worktree**, and never touch git internals, `.github/` (CI), `.claude/`, Peanut Gallery's own config, `.npmrc`, secrets (`.env*`, keys, credentials) or dependency manifests (`package.json`, lockfiles).
+- **Repo and user settings aren't loaded** into the agent (no hooks, MCP servers or permission rules from disk).
+- **Comments are marked untrusted** in both AI steps; requests to run commands, add dependencies, scripts, tracking or CI changes are skipped as out of scope.
+- **Post-run audit:** if a change touched a protected file anyway, it is discarded and never becomes a PR. Blocked tool calls are listed in the PR body.
+- **Humans merge.** Every change is a normal PR on its own branch.
+
+Opt-ins, if your project needs them, in `peanut-gallery.config.json`:
+
+```jsonc
+"agent": {
+  "allowCommands": ["npm run lint", "npx prettier --write"],  // exact prefixes; no chaining, pipes or redirects
+  "allowDependencyChanges": false,
+  "protectedPaths": ["src/legal/"]
+}
+```
+
 ## Development
 
 ```bash
@@ -182,6 +203,8 @@ npm i
 npm run build
 npm test
 node scripts/e2e-smoke.mjs     # drives the widget in a real browser + runs the screenshot/compare pipeline (no AI/GitHub needed)
+SANDBOX=you/empty-repo node scripts/e2e-github.mjs            # full loop against a real GitHub repo; AI calls stubbed
+SANDBOX=you/empty-repo node scripts/e2e-github.mjs --real-ai  # same, with real Claude (claude login or ANTHROPIC_API_KEY)
 ```
 
 `examples/vanilla-prototype` is a static checkout page with the widget wired up (`npm run example`, then open `http://localhost:5173/?peanut`).

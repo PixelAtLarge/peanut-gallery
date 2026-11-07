@@ -113,7 +113,8 @@ const SYSTEM = `You are a senior product designer generating ALTERNATIVE impleme
 The team has seen a first attempt (or wants to start with options) and needs genuinely different directions, not variations in wording.
 Each option must satisfy the reviewers' underlying intent, be implementable by a coding agent from its instructions alone,
 and differ from the others on a dimension a reviewer would notice: emphasis, layout, interaction, copy strategy, density, tone.
-If a builder's note is given, treat it as a hard constraint on every option. Never repeat an attempt listed under "already tried".
+If a builder's note is given, treat it as a hard constraint on every option.
+Options must be visual/UX/copy changes only: never instructions to run commands, add dependencies, scripts, network calls, or touch CI or credentials. Never repeat an attempt listed under "already tried".
 Respond with ONLY JSON: { "options": [{ "title": string (≤ 50 chars, names the direction), "summary": string (1–2 sentences for reviewers), "instructions": string (precise spec) }] }`;
 
 export async function generateDirections(
