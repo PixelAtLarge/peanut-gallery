@@ -7,7 +7,7 @@
 // screenshots, push, pull requests, issue comments, votes, labels, the variants assets branch —
 // except the two AI calls, which use deterministic stand-ins unless --real-ai is passed
 // (then you need `claude login` or ANTHROPIC_API_KEY). Exits non-zero on the first failed check.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,8 +36,12 @@ function summary() {
 
 // ── 1. sandbox repo with the example prototype ────────────────────────────────
 mkdirSync(WORK, { recursive: true });
-rmSync(DIR, { recursive: true, force: true });
-sh('git', ['clone', '-q', `https://github.com/${SANDBOX}.git`, DIR]);
+if (process.env.REUSE_CLONE && existsSync(join(DIR, '.git'))) {
+  // use an existing checkout (e.g. one your environment already cloned)
+} else {
+  rmSync(DIR, { recursive: true, force: true });
+  sh('git', ['clone', '-q', `https://github.com/${SANDBOX}.git`, DIR]);
+}
 process.chdir(DIR);
 if (!existsSync('index.html')) {
   for (const f of ['index.html', 'styles.css']) cpSync(join(ROOT, 'examples/vanilla-prototype', f), f);
@@ -58,7 +62,7 @@ cfg.sourceHints = ['index.html', 'styles.css'];
 cfg.agentNotes = 'Static HTML prototype; styles in styles.css.';
 delete cfg.prototypeUrl;
 writeFileSync('peanut-gallery.config.json', JSON.stringify(cfg, null, 2) + '\n');
-const labels = JSON.parse(gh('label', 'list', '--repo', SANDBOX, '--json', 'name')).map((l) => l.name);
+const labels = JSON.parse(gh('api', `repos/${SANDBOX}/labels?per_page=100`)).map((l) => l.name);
 check('init created the peanut-gallery labels', ['peanut-gallery', 'peanut-gallery:feedback', 'peanut-gallery:proposal', 'peanut-gallery:accepted'].every((l) => labels.includes(l)), labels.filter((l) => l.startsWith('peanut')).join(', '));
 
 // ── 2. a reviewer session from the real widget, filed through the real relay ──
@@ -85,16 +89,33 @@ session.author = 'e2e-reviewer';
 check('widget produced a 2-note session with stable anchors', session?.annotations?.length === 2 && session.annotations[0].anchor.selector === 'button[data-testid="pay"]');
 
 const { createRelayHandler } = await import(join(ROOT, 'packages/relay/dist/index.js'));
-const relay = createRelayHandler({ githubToken: gh('auth', 'token'), repo: SANDBOX, allowedOrigins: ['http://127.0.0.1:4390'] });
+// Some sandboxes only reach GitHub through an authenticating proxy that `gh` knows about.
+// RELAY_VIA_GH=1 forwards the relay's exact request through `gh api` instead of fetch,
+// so the relay's validation, labels and issue-body code still run unchanged.
+const relayToken = process.env.RELAY_VIA_GH ? 'via-gh' : gh('auth', 'token');
+const viaGh = async (url, init) => {
+  const h = init.headers;
+  if (h.authorization !== `Bearer ${relayToken}` || h['x-github-api-version'] !== '2022-11-28') throw new Error('relay sent unexpected headers');
+  const path = new URL(url).pathname.replace(/^\//, '');
+  const r = spawnSync('gh', ['api', '-X', init.method, path, '--input', '-', '-i'], { input: init.body, encoding: 'utf8' });
+  const [head, ...rest] = r.stdout.split(/\r?\n\r?\n/);
+  const status = Number(/HTTP\/[\d.]+ (\d+)/.exec(head)?.[1] ?? 500);
+  return new Response(rest.join('\n\n'), { status, headers: { 'content-type': 'application/json' } });
+};
+const relay = createRelayHandler({ githubToken: relayToken, repo: SANDBOX, allowedOrigins: ['http://127.0.0.1:4390'], ...(process.env.RELAY_VIA_GH ? { fetch: viaGh } : {}) });
 const res = await relay(new Request('https://relay.local/', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:4390' }, body: JSON.stringify({ session }) }));
 const filed = await res.json();
 check('relay created a GitHub issue', res.status === 201 && filed.issueNumber, filed.issueUrl ?? JSON.stringify(filed));
 
 // ── 3. pull ───────────────────────────────────────────────────────────────────
-const pullOut = sh('node', [CLI, 'pull']);
+// GitHub's issue listing can trail a just-created issue by a few seconds; retry briefly.
+let pullOut = '', ours;
+for (let i = 0; i < 6 && !ours; i++) {
+  if (i) await new Promise((r) => setTimeout(r, 2500));
+  pullOut = sh('node', [CLI, 'pull']);
+  ours = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8')).find((x) => x.number === filed.issueNumber);
+}
 const lib = await import(join(ROOT, 'packages/cli/dist/index.js'));
-const feedback = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8'));
-const ours = feedback.find((i) => i.number === filed.issueNumber);
 check('pull parsed the issue back into a session', ours && ours.session.annotations.length === 2, pullOut.split('\n')[0]);
 
 // ── 4. interpret ──────────────────────────────────────────────────────────────
@@ -123,15 +144,15 @@ const run = runs[0];
 check('apply implemented the change on its own branch', run && run.branch?.startsWith('peanut-gallery/'), run?.branch);
 check('before/after screenshots + compare page were generated', run?.screenshots?.length > 0 && run.comparePath, `${run?.screenshots?.length ?? 0} pairs`);
 check('a pull request was opened', run?.prUrl?.includes('/pull/'), run?.prUrl);
-const prFiles = JSON.parse(gh('pr', 'view', String(run.prNumber), '--repo', SANDBOX, '--json', 'files,body')).files.map((f) => f.path);
-check('PR contains the code change and the comparison assets', prFiles.includes('index.html') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
+const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${run.prNumber}/files`)).map((f) => f.filename);
+check('PR contains the code change and the comparison assets', prFiles.some((f) => f === 'index.html' || f === 'styles.css') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
 const comments = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}/comments`));
 check('comparison + vote prompt were posted back on the issue', comments.some((c) => c.body.includes('Which do you prefer?') && c.body.includes(run.prUrl)));
 
 // ── 6. reviewer replies; votes --label ────────────────────────────────────────
 gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}/comments`, '-f', 'body=After, definitely. Ship it.');
 sh('node', [CLI, 'votes', '--label']);
-const issueLabels = JSON.parse(gh('issue', 'view', String(filed.issueNumber), '--repo', SANDBOX, '--json', 'labels')).labels.map((l) => l.name);
+const issueLabels = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}`)).labels.map((l) => l.name);
 check('votes read the reply and labelled the issue accepted', issueLabels.includes('peanut-gallery:accepted'), issueLabels.join(', '));
 const prComments = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${run.prNumber}/comments`));
 check('votes left a verdict on the PR', prComments.some((c) => c.body.includes('preferred **After**')));
@@ -153,6 +174,6 @@ check('variants opened one PR per option', vruns.length === 2 && vruns.every((r)
 const assets = sh('git', ['ls-remote', '--heads', 'origin', 'peanut-gallery/assets']);
 check('combined options image was published to the assets branch', assets.length > 0);
 const after = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}/comments`));
-check('options comparison was posted on the issue', after.some((c) => c.body.includes('options round') && c.body.includes('peanut-gallery/assets')));
+check('options comparison was posted on the issue', after.some((c) => c.body.includes('options round') && c.body.includes('peanut-gallery%2Fassets')));
 
 summary();

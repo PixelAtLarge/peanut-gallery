@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline/promises';
 import pc from 'picocolors';
 import { LABELS } from '@peanut-gallery/core';
 import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
-import { ensureLabels, gh } from '../github.js';
+import { ensureLabels, gh, git } from '../github.js';
 
 export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string }) {
   if (existsSync(CONFIG_FILE) && !opts.yes) {
@@ -12,9 +12,17 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
   }
   let detected = '';
   try {
-    detected = JSON.parse(await gh(['repo', 'view', '--json', 'nameWithOwner'])).nameWithOwner;
+    // Read the origin remote directly (no network); fall back to gh, which needs GraphQL.
+    detected = repoFromRemote(await git(['remote', 'get-url', 'origin']));
   } catch {
-    /* not in a gh-known repo */
+    /* no origin remote */
+  }
+  if (!detected) {
+    try {
+      detected = JSON.parse(await gh(['repo', 'view', '--json', 'nameWithOwner'])).nameWithOwner;
+    } catch {
+      /* not in a gh-known repo */
+    }
   }
   const rl = opts.yes ? null : createInterface({ input: process.stdin, output: process.stdout });
   const ask = async (q: string, def: string) => {
@@ -65,4 +73,10 @@ ${pc.bold('Then, in this repo:')}
   ${pc.cyan('claude login')}  ${pc.dim('(Claude Code) — or export ANTHROPIC_API_KEY=…')}
   ${pc.cyan('npx peanut-gallery review')}            ${pc.dim('pull → interpret → implement → before/after → PRs')}
 `);
+}
+
+/** `git@github.com:o/r.git`, `https://github.com/o/r(.git)`, `ssh://git@github.com/o/r` → `o/r`. */
+export function repoFromRemote(url: string): string {
+  const m = /github\.com[:/]+([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(url.trim());
+  return m ? `${m[1]}/${m[2]}` : '';
 }
