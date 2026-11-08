@@ -2,6 +2,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PeanutGalleryWidget } from './widget.js';
 
+// Node 25+ ships its own Web Storage `localStorage` global, which hides jsdom's in this
+// environment (and has no methods unless Node is given --localstorage-file). Use jsdom's.
+const jsdomStorage = (globalThis as { jsdom?: { window: Window } }).jsdom?.window.localStorage;
+if (jsdomStorage && typeof (globalThis.localStorage as Storage | undefined)?.clear !== 'function') {
+  Object.defineProperty(globalThis, 'localStorage', { value: jsdomStorage, configurable: true, writable: true });
+}
+
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = `<main><h1>Checkout</h1><button data-testid="pay">Pay now</button></main>`;
@@ -106,8 +113,9 @@ describe('widget', () => {
   });
 
   it('still works when localStorage and prompt are blocked (sandboxed frames)', () => {
-    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
-    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    const proto = Object.getPrototypeOf(localStorage) as Storage;
+    const get = vi.spyOn(proto, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    const set = vi.spyOn(proto, 'setItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
     const pr = vi.spyOn(window, 'prompt').mockImplementation(() => { throw new Error('blocked'); });
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', onSubmit: () => ({ keep: true }) }).mount();
     const sr = shadow(w);
