@@ -103,6 +103,8 @@ The widget never loads webfonts on its own; it uses the theme fonts if the page 
 
 Each note stores a CSS selector that prefers stable hooks (`data-testid`, `id`, `aria-label`, non-hashed classes, then a structural path), the element's text, tag, nearby heading, document rect and the click offset. On resolve it tries selector → selector + text → same-tag text search → stored coordinates, and reports a confidence. The same code runs in the widget and in the CLI's Playwright screenshots, so the "after" close-up finds the element even when the fix changed its text or moved it. Add `data-testid`s to important elements for best results.
 
+**Single-page apps.** Pins follow client-side navigation (React Router, Next, Vue Router, hash routes) and redraw when the app re-renders, so a note on a list that loads after the page still lands on its item. A note on something that isn't on screen right now, like a closed modal, hides its pin until the element comes back; it stays in the notes list. Each note remembers its route, ignoring the `?peanut` switch and tracking parameters.
+
 ## 2. (Optional) Relay for one-click submission
 
 The browser can't hold a GitHub token. If reviewers shouldn't need GitHub accounts, deploy the relay — it's one function that validates the payload and creates the issue.
@@ -247,15 +249,17 @@ npm test
 node scripts/e2e-smoke.mjs     # drives the widget in a real browser + runs the screenshot/compare pipeline (no AI/GitHub needed)
 SANDBOX=you/empty-repo node scripts/e2e-github.mjs            # full loop against a real GitHub repo; AI calls stubbed
 SANDBOX=you/empty-repo node scripts/e2e-github.mjs --real-ai  # same, with real Claude (claude login or ANTHROPIC_API_KEY)
+SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a React + Vite app (routes, async data, a modal), on a react-app branch
 ```
 
-`examples/vanilla-prototype` is a static checkout page with the widget wired up (`npm run example`, then open `http://localhost:5173/?peanut`).
+`examples/vanilla-prototype` is a static checkout page with the widget wired up (`npm run example`, then open `http://localhost:5173/?peanut`). `examples/react-app` is a small React 19 + React Router + Vite shop with an async cart and a confirm dialog, used by `e2e-react.mjs`.
 
 ## Roadmap / known limits
 
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
 - Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
 - Prototypes that need auth: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state.
+- Screenshots load each page fresh, so they can't show states that need clicks first (an open modal, step 3 of a form). Those comparisons fall back to the full page and say so; replaying the reviewer's clicks is planned.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.
 - Vote classification is keyword-based; a Claude pass for nuanced replies ("after, but the old colour") is planned.

@@ -33,7 +33,13 @@ export function pathOf(url: string, prototypeUrl?: string): string {
       const basePath = new URL(prototypeUrl).pathname.replace(/\/+$/, '');
       if (basePath && path.startsWith(basePath)) path = path.slice(basePath.length) || '/';
     }
-    return path + u.search;
+    // Same rules as the widget: the ?peanut switch and tracking params aren't part of the page;
+    // a hash route (#/checkout) is.
+    for (const key of [...u.searchParams.keys()]) {
+      if (key === 'peanut' || key.startsWith('utm_') || key === 'fbclid' || key === 'gclid') u.searchParams.delete(key);
+    }
+    const search = u.searchParams.toString();
+    return path + (search ? `?${search}` : '') + (/^#!?\//.test(u.hash) ? u.hash : '');
   } catch {
     return url;
   }

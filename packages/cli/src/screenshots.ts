@@ -17,6 +17,8 @@ export interface ShotResult {
   label: string;
   file: string;
   confidence?: number;
+  /** For element targets: false when the element wasn't on the page as loaded, so the shot is the full page. */
+  found?: boolean;
 }
 
 const injectSrc = () => {
@@ -99,12 +101,12 @@ export async function captureShots(
           clip.height = Math.min(clip.height, opts.height - clip.y);
           await page.screenshot({ path: file, clip });
           await page.evaluate(() => window.__peanutGallery.clearOutlines());
-          results.push({ key: t.key, label: t.label, file, confidence });
+          results.push({ key: t.key, label: t.label, file, confidence, found: true });
           continue;
         }
       }
       await page.screenshot({ path: file, fullPage: opts.fullPage });
-      results.push({ key: t.key, label: t.label, file, confidence });
+      results.push({ key: t.key, label: t.label, file, confidence, ...(t.anchor ? { found: false } : {}) });
     }
   } finally {
     await browser.close();

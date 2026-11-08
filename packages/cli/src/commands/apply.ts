@@ -300,7 +300,11 @@ export async function runProposal(
         const shot = { ...cfg.screenshot, outlineColor: cfg.resolvedTheme.accent };
         const b = await captureShots(ctx.before.url, targets, outDir, { ...shot, prefix: 'before' });
         const a = await captureShots(after.url, targets, outDir, { ...shot, prefix: 'after' });
-        const pairs: ComparePair[] = targets.map((t, i) => ({ label: t.label, before: relative(outDir, b[i].file), after: relative(outDir, a[i].file) }));
+        const pairs: ComparePair[] = targets.map((t, i) => ({
+          label: t.anchor && b[i].found === false && a[i].found === false ? `${t.label} — full page: this element isn't on the page when it first loads (e.g. it's inside a modal)` : t.label,
+          before: relative(outDir, b[i].file),
+          after: relative(outDir, a[i].file),
+        }));
         writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
         writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
         await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));

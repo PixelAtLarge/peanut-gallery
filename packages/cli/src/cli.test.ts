@@ -119,6 +119,10 @@ describe('urls', () => {
     expect(pathOf('https://x.io/app/checkout?x=1', 'https://x.io/app/')).toBe('/checkout?x=1');
     expect(pathOf('https://x.io/app/', 'https://x.io/app')).toBe('/');
     expect(pathOf('https://x.io/checkout')).toBe('/checkout');
+    expect(pathOf('https://x.io/?peanut')).toBe('/');
+    expect(pathOf('https://x.io/list?page=2&peanut&utm_source=li')).toBe('/list?page=2');
+    expect(pathOf('https://x.io/#/checkout?peanut')).toBe('/#/checkout?peanut');
+    expect(pathOf('https://x.io/about#team')).toBe('/about');
   });
 });
 

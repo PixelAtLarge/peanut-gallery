@@ -14,6 +14,53 @@ import {
 } from '@pixelatlarge/peanut-gallery-core';
 import { css } from './styles.js';
 
+type SubmitResult = void | { issueUrl?: string; keep?: boolean };
+
+const LOCATION_EVENT = 'peanut-gallery:locationchange';
+
+/**
+ * The page a note belongs to. Drops the `?peanut` switch and tracking parameters (they
+ * disappear as soon as the reviewer navigates inside the app), and keeps hash routes
+ * (`#/checkout`) because in hash-routed apps the hash is the page.
+ */
+export function normalizePageUrl(href: string): string {
+  try {
+    const u = new URL(href);
+    for (const key of [...u.searchParams.keys()]) {
+      if (key === 'peanut' || key.startsWith('utm_') || key === 'fbclid' || key === 'gclid') u.searchParams.delete(key);
+    }
+    const search = u.searchParams.toString();
+    const hash = /^#!?\//.test(u.hash) ? u.hash : '';
+    return u.origin + u.pathname + (search ? `?${search}` : '') + hash;
+  } catch {
+    return href;
+  }
+}
+
+/**
+ * Fire LOCATION_EVENT whenever the app calls history.pushState/replaceState (client-side
+ * routers: React Router, Next, Vue Router...). Wraps once per page and leaves the original
+ * behaviour untouched.
+ */
+function watchHistory() {
+  if (typeof history === 'undefined') return;
+  const h = history as History & { __peanutGallery?: true };
+  if (h.__peanutGallery) return;
+  h.__peanutGallery = true;
+  for (const name of ['pushState', 'replaceState'] as const) {
+    const original = h[name];
+    h[name] = function (this: History, ...args: Parameters<History['pushState']>) {
+      const result = original.apply(this, args);
+      try {
+        window.dispatchEvent(new Event(LOCATION_EVENT));
+      } catch {
+        /* never break the app's navigation */
+      }
+      return result;
+    } as History['pushState'];
+  }
+}
+
 export interface PeanutGalleryConfig {
   /** GitHub repo as "owner/name". Required. */
   repo: string;
@@ -52,7 +99,7 @@ export interface PeanutGalleryConfig {
    * Overrides `mode`. Resolve to clear the notes; return `{ issueUrl }` to link to the result,
    * or `{ keep: true }` to leave the notes on the page. Throw to show an error and keep them.
    */
-  onSubmit?: (session: ReviewSession) => void | Promise<void | { issueUrl?: string; keep?: boolean }>;
+  onSubmit?: (session: ReviewSession) => SubmitResult | Promise<SubmitResult>;
   /** Start from these notes instead of the ones saved in this browser (e.g. a demo or a test). */
   session?: ReviewSession;
 }
@@ -94,6 +141,7 @@ export class PeanutGalleryWidget {
   private toolbar!: HTMLElement;
   private raf = 0;
   private destroyed = false;
+  private observer?: MutationObserver;
 
   constructor(cfg: PeanutGalleryConfig) {
     if (!cfg.repo || !/^[\w.-]+\/[\w.-]+$/.test(cfg.repo)) throw new Error('PeanutGallery: config.repo must be "owner/name"');
@@ -145,10 +193,29 @@ export class PeanutGalleryWidget {
     document.addEventListener('keydown', this.onKey, true);
     window.addEventListener('scroll', this.schedulePins, true);
     window.addEventListener('resize', this.schedulePins);
+    // Single-page apps change the URL without a reload and re-render without scrolling,
+    // so also redraw on history changes and on DOM changes outside our own shadow root.
+    watchHistory();
+    window.addEventListener(LOCATION_EVENT, this.onLocationChange);
+    window.addEventListener('popstate', this.onLocationChange);
+    window.addEventListener('hashchange', this.onLocationChange);
+    if (typeof MutationObserver !== 'undefined') {
+      this.observer = new MutationObserver((records) => {
+        if (records.some((r) => r.target !== this.host)) this.schedulePins();
+      });
+      this.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'open', 'aria-hidden'], characterData: true });
+    }
     this.renderPins();
     this.updateCount();
     return this;
   }
+
+  private onLocationChange = () => {
+    if (this.destroyed) return;
+    this.closeComposer();
+    this.schedulePins();
+    if (this.panel) this.renderPanel();
+  };
 
   destroy() {
     this.destroyed = true;
@@ -157,6 +224,11 @@ export class PeanutGalleryWidget {
     document.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('scroll', this.schedulePins, true);
     window.removeEventListener('resize', this.schedulePins);
+    window.removeEventListener(LOCATION_EVENT, this.onLocationChange);
+    window.removeEventListener('popstate', this.onLocationChange);
+    window.removeEventListener('hashchange', this.onLocationChange);
+    this.observer?.disconnect();
+    if (this.raf) cancelAnimationFrame(this.raf);
     this.host?.remove();
   }
 
@@ -200,7 +272,7 @@ export class PeanutGalleryWidget {
   }
 
   private pageUrl() {
-    return location.origin + location.pathname + location.search;
+    return normalizePageUrl(location.href);
   }
 
   // ---------- toolbar ----------
@@ -358,31 +430,45 @@ export class PeanutGalleryWidget {
     });
   };
 
+  private pinsSignature = '';
+
   private renderPins() {
-    this.pinsLayer.replaceChildren();
     const here = this.pageUrl();
+    const placed: { a: Annotation; n: number; x: number; y: number; low: boolean }[] = [];
     this.session.annotations.forEach((a, i) => {
-      if (a.pageUrl !== here) return;
+      if (normalizePageUrl(a.pageUrl) !== here) return;
       const { el: target, confidence } = resolveAnchor(a.anchor, document);
-      let x: number, y: number;
-      if (target) {
-        const r = target.getBoundingClientRect();
-        x = r.left + scrollX + r.width * a.anchor.offset.x;
-        y = r.top + scrollY + r.height * a.anchor.offset.y;
-      } else {
-        x = a.anchor.rect.x + a.anchor.rect.width * a.anchor.offset.x;
-        y = a.anchor.rect.y + a.anchor.rect.height * a.anchor.offset.y;
-      }
-      const pin = el('div', 'pg-pin' + (confidence < 0.5 ? ' pg-low' : ''), String(i + 1));
-      pin.title = a.text;
-      pin.style.left = `${x}px`;
-      pin.style.top = `${y}px`;
-      pin.onclick = (ev) => {
-        ev.stopPropagation();
-        this.openComposer(target ?? document.body, x - scrollX, y - scrollY, a);
-      };
-      this.pinsLayer.append(pin);
+      // Element not on screen right now (a closed modal, a collapsed panel, another tab of the
+      // UI): leave the pin out rather than floating it over unrelated content. The note is
+      // still listed in the panel. Below 0.4 the resolver is only guessing from the old
+      // position (whatever now sits where the element was), so treat that as not found too.
+      if (!target || confidence < 0.4) return;
+      const vis = (target as Element & { checkVisibility?: () => boolean }).checkVisibility;
+      if (typeof vis === 'function' && !vis.call(target)) return;
+      const r = target.getBoundingClientRect();
+      const x = Math.round(r.left + scrollX + r.width * a.anchor.offset.x);
+      const y = Math.round(r.top + scrollY + r.height * a.anchor.offset.y);
+      placed.push({ a, n: i + 1, x, y, low: confidence < 0.5 });
     });
+    // Busy apps mutate the DOM constantly; only rebuild when a pin actually changed, so
+    // hover and clicks on pins aren't interrupted.
+    const sig = placed.map((p) => `${p.a.id}:${p.n}:${p.x}:${p.y}:${p.low}:${p.a.text}`).join('|');
+    if (sig === this.pinsSignature && this.pinsLayer.childElementCount === placed.length) return;
+    this.pinsSignature = sig;
+    this.pinsLayer.replaceChildren(
+      ...placed.map(({ a, n, x, y, low }) => {
+        const pin = el('div', 'pg-pin' + (low ? ' pg-low' : ''), String(n));
+        pin.title = a.text;
+        pin.style.left = `${x}px`;
+        pin.style.top = `${y}px`;
+        pin.onclick = (ev) => {
+          ev.stopPropagation();
+          const target = resolveAnchor(a.anchor, document).el ?? document.body;
+          this.openComposer(target, x - scrollX, y - scrollY, a);
+        };
+        return pin;
+      }),
+    );
   }
 
   // ---------- panel ----------
@@ -412,7 +498,7 @@ export class PeanutGalleryWidget {
       const text = el('div', 'pg-text');
       if (a.kind) text.append(el('span', 'pg-kind', a.kind));
       text.append(`${i + 1}. ${a.text}`);
-      const meta = el('div', 'pg-meta', `${a.pageUrl === here ? 'this page' : pathOf(a.pageUrl)} · ${a.anchor.tag}${a.anchor.textFingerprint ? ` “${a.anchor.textFingerprint.slice(0, 30)}”` : ''}`);
+      const meta = el('div', 'pg-meta', `${normalizePageUrl(a.pageUrl) === here ? 'this page' : pathOf(a.pageUrl)} · ${a.anchor.tag}${a.anchor.textFingerprint ? ` “${a.anchor.textFingerprint.slice(0, 30)}”` : ''}`);
       item.append(text, meta);
       p.append(item);
     });

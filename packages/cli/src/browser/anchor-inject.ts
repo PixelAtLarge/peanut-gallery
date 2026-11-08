@@ -13,7 +13,9 @@ declare global {
 window.__peanutGallery = {
   locate(anchor, outline = false, color = '#EAC26C') {
     const { el, confidence } = resolveAnchor(anchor, document);
-    if (!el) return { rect: null, confidence: 0 };
+    // Below 0.4 the resolver is only guessing from the stored position (the element isn't on
+    // the page as loaded, e.g. it lives in a modal). Don't crop or outline a stand-in.
+    if (!el || confidence < 0.4) return { rect: null, confidence };
     el.scrollIntoView({ block: 'center', inline: 'center' });
     const r = el.getBoundingClientRect();
     if (outline) {
