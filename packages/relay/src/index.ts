@@ -135,6 +135,7 @@ function validate(s: ReviewSession | undefined, max: number): string | null {
     if (typeof a.text !== 'string' || a.text.length === 0 || a.text.length > 5000) return 'annotation text invalid';
     if (!a.anchor || typeof a.anchor.selector !== 'string' || a.anchor.selector.length > 2000) return 'anchor invalid';
     if (typeof a.pageUrl !== 'string' || a.pageUrl.length > 2000) return 'pageUrl invalid';
+    if (a.steps !== undefined && (!Array.isArray(a.steps) || a.steps.length > 10 || a.steps.some((st) => !st || typeof st.selector !== 'string' || st.selector.length > 2000))) return 'steps invalid';
     if (a.viewport !== undefined && (typeof a.viewport !== 'object' || !Number.isFinite(a.viewport?.width) || !Number.isFinite(a.viewport?.height))) return 'viewport invalid';
   }
   return null;

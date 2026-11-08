@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
+import { stepLabel, type ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
 
 export interface ShotTarget {
   /** Stable key, used for filenames. */
@@ -10,6 +10,8 @@ export interface ShotTarget {
   /** Path portion of the page (e.g. "/checkout?x=1"); joined onto the base URL. */
   pagePath: string;
   anchor?: ElementAnchor;
+  /** Clicks to replay if the element isn't on the freshly loaded page (Annotation.steps). */
+  steps?: ElementAnchor[];
 }
 
 export interface ShotResult {
@@ -17,6 +19,10 @@ export interface ShotResult {
   label: string;
   file: string;
   confidence?: number;
+  /** For element targets: false when the element wasn't on the page as loaded, so the shot is the full page. */
+  found?: boolean;
+  /** Labels of the recorded clicks that were replayed to reach the element. */
+  replayed?: string[];
 }
 
 const injectSrc = () => {
@@ -60,7 +66,7 @@ export async function captureShots(
   baseUrl: string,
   targets: ShotTarget[],
   outDir: string,
-  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string },
+  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string; replayClicks?: boolean },
 ): Promise<ShotResult[]> {
   mkdirSync(outDir, { recursive: true });
   const browser = await launch();
@@ -77,8 +83,28 @@ export async function captureShots(
       await page.waitForTimeout(opts.settleMs ?? 500);
       const file = join(outDir, `${opts.prefix}-${t.key}.png`);
       let confidence: number | undefined;
+      let replayed: string[] | undefined;
       if (t.anchor) {
         await page.addScriptTag({ content: injectSrc() });
+        const ensureInjected = async () => {
+          if (!(await page.evaluate(() => typeof window.__peanutGallery !== 'undefined').catch(() => false))) await page.addScriptTag({ content: injectSrc() });
+        };
+        const first = await page.evaluate((a) => window.__peanutGallery.locate(a, false), t.anchor);
+        // Not on the page as loaded (inside a modal, a menu, a tab): click through what the
+        // reviewer clicked before leaving the note, then look again.
+        if (!first.rect && t.steps?.length && opts.replayClicks !== false) {
+          replayed = [];
+          for (const step of t.steps) {
+            await ensureInjected();
+            const pt = await page.evaluate((st) => window.__peanutGallery.clickPoint(st), step).catch(() => null);
+            if (!pt) continue;
+            await page.mouse.click(pt.x, pt.y);
+            replayed.push(stepLabel(step));
+            await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+            await page.waitForTimeout(350);
+          }
+          await ensureInjected();
+        }
         const loc = await page.evaluate(([a, c]) => window.__peanutGallery.locate(a, true, c), [t.anchor, opts.outlineColor] as const);
         confidence = loc.confidence;
         if (loc.rect) {
@@ -99,12 +125,12 @@ export async function captureShots(
           clip.height = Math.min(clip.height, opts.height - clip.y);
           await page.screenshot({ path: file, clip });
           await page.evaluate(() => window.__peanutGallery.clearOutlines());
-          results.push({ key: t.key, label: t.label, file, confidence });
+          results.push({ key: t.key, label: t.label, file, confidence, found: true, ...(replayed?.length ? { replayed } : {}) });
           continue;
         }
       }
       await page.screenshot({ path: file, fullPage: opts.fullPage });
-      results.push({ key: t.key, label: t.label, file, confidence });
+      results.push({ key: t.key, label: t.label, file, confidence, ...(t.anchor ? { found: false } : {}), ...(replayed?.length ? { replayed } : {}) });
     }
   } finally {
     await browser.close();
@@ -136,6 +162,7 @@ declare global {
     __peanutGallery: {
       locate(anchor: ElementAnchor, outline?: boolean, color?: string): { rect: { x: number; y: number; width: number; height: number } | null; confidence: number };
       clearOutlines(): void;
+      clickPoint(anchor: ElementAnchor): { x: number; y: number } | null;
     };
   }
 }

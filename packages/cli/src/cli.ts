@@ -18,7 +18,7 @@ import { git } from './github.js';
 const program = new Command()
   .name('peanut-gallery')
   .description('Turn prototype feedback (GitHub Issues from the peanut-gallery widget) into Claude-implemented design updates with before/after and PRs.')
-  .version('0.1.0');
+  .version('0.1.1');
 
 program
   .command('init')

@@ -29,6 +29,22 @@ export interface Annotation {
   author?: string;
   /** Optional free-form tag chosen by the reviewer, e.g. "bug", "copy", "layout". */
   kind?: AnnotationKind;
+  /**
+   * Clicks the reviewer made on this page before leaving the note, oldest first (at most 5,
+   * reset on navigation). Screenshots replay them when the element isn't on the freshly
+   * loaded page, e.g. a note inside a modal. Element identities only, never typed values.
+   */
+  steps?: ElementAnchor[];
+}
+
+/** Most clicks kept per note. */
+export const MAX_STEPS = 5;
+
+/** Short human label for a recorded click, e.g. `“Remove”` or `button#save`. */
+export function stepLabel(step: Pick<ElementAnchor, 'tag' | 'textFingerprint' | 'selector'>): string {
+  const t = (step.textFingerprint ?? '').trim();
+  if (t) return `“${t.length > 40 ? t.slice(0, 39) + '…' : t}”`;
+  return step.selector.length > 60 ? step.tag : step.selector;
 }
 
 export type AnnotationKind = 'bug' | 'copy' | 'layout' | 'visual' | 'flow' | 'question' | 'praise';

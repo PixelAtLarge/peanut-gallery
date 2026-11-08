@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PeanutGalleryWidget } from './widget.js';
+import { PeanutGalleryWidget, normalizePageUrl } from './widget.js';
 
 // Node 25+ ships its own Web Storage `localStorage` global, which hides jsdom's in this
 // environment (and has no methods unless Node is given --localstorage-file). Use jsdom's.
@@ -14,6 +14,8 @@ beforeEach(() => {
   document.body.innerHTML = `<main><h1>Checkout</h1><button data-testid="pay">Pay now</button></main>`;
   document.querySelectorAll('peanut-gallery').forEach((n) => n.remove());
 });
+
+const frame = () => new Promise((r) => setTimeout(r, 40));
 
 function shadow(w: PeanutGalleryWidget): ShadowRoot {
   return document.querySelector('peanut-gallery')!.shadowRoot!;
@@ -145,10 +147,110 @@ describe('widget', () => {
     expect(shadow(w).querySelector('[data-role=count]')!.textContent).toBe('1');
   });
 
+  it('redraws pins on client-side navigation (pushState / popstate)', async () => {
+    const start = location.pathname;
+    const note = (path: string, id: string) => ({ id, text: id, kind: 'visual', pageUrl: location.origin + path, anchor: { selector: 'button[data-testid="pay"]', textFingerprint: 'Pay now', tag: 'button', rect: { x: 0, y: 0, width: 10, height: 10 }, offset: { x: 0.5, y: 0.5 } }, createdAt: '2026-11-07T00:00:00Z' });
+    history.replaceState(null, '', '/cart');
+    const w = new PeanutGalleryWidget({
+      repo: 'owner/repo', author: 'anna',
+      session: { id: 'rs', prototypeUrl: 'http://x', createdAt: '2026-11-07T00:00:00Z', annotations: [note('/cart', 'cart-1'), note('/checkout', 'co-1'), note('/checkout', 'co-2')] } as never,
+    }).mount();
+    const pins = () => Array.from(shadow(w).querySelectorAll('.pg-pin')).map((p) => (p as HTMLElement).title);
+    expect(pins()).toEqual(['cart-1']);
+    history.pushState(null, '', '/checkout');
+    await frame();
+    expect(pins()).toEqual(['co-1', 'co-2']);
+    history.back();
+    await new Promise((r) => window.addEventListener('popstate', r, { once: true }));
+    await frame();
+    expect(pins()).toEqual(['cart-1']);
+    w.destroy();
+    history.replaceState(null, '', start);
+  });
+
+  it('hides pins whose element leaves the DOM (closed modal) and restores them when it returns', async () => {
+    const w = new PeanutGalleryWidget({
+      repo: 'owner/repo', author: 'anna',
+      session: { id: 'rs', prototypeUrl: 'http://x', createdAt: '2026-11-07T00:00:00Z', annotations: [{ id: 'm1', text: 'Clearer title', kind: 'copy', pageUrl: location.origin + location.pathname + location.search, anchor: { selector: 'h2[data-testid="modal-title"]', textFingerprint: 'Remove item?', tag: 'h2', rect: { x: 0, y: 0, width: 10, height: 10 }, offset: { x: 0.5, y: 0.5 } }, createdAt: '2026-11-07T00:00:00Z' }] } as never,
+    }).mount();
+    const count = () => shadow(w).querySelectorAll('.pg-pin').length;
+    expect(count()).toBe(0);
+    const dialog = document.createElement('div');
+    dialog.innerHTML = '<h2 data-testid="modal-title">Remove item?</h2>';
+    document.body.append(dialog);
+    await frame();
+    expect(count()).toBe(1);
+    dialog.remove();
+    await frame();
+    expect(count()).toBe(0);
+    expect(shadow(w).querySelector('[data-role=count]')!.textContent).toBe('1');
+    // Real browsers have elementFromPoint, so the resolver guesses "whatever is there now";
+    // a pin must not follow that guess.
+    const d = document as unknown as { elementFromPoint?: () => Element | null };
+    const original = d.elementFromPoint;
+    d.elementFromPoint = () => document.querySelector('main');
+    document.body.append(document.createElement('span'));
+    await frame();
+    expect(count()).toBe(0);
+    d.elementFromPoint = original;
+    w.destroy();
+  });
+
+  it('leaves history working normally and stops listening after destroy', async () => {
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna' }).mount();
+    w.destroy();
+    history.pushState({ a: 1 }, '', '/after-destroy');
+    expect(location.pathname).toBe('/after-destroy');
+    expect(history.state).toEqual({ a: 1 });
+    await frame();
+  });
+
+  it('records the clicks that led to a note (not the note click itself), reset on navigation', async () => {
+    const start = location.pathname;
+    document.body.innerHTML = `<main><h1>Cart</h1><button data-testid="remove">Remove</button><div id="slot"></div></main>`;
+    document.querySelector('[data-testid=remove]')!.addEventListener('click', () => {
+      document.getElementById('slot')!.innerHTML = '<div role="dialog"><h2 data-testid="dialog-title">Remove item?</h2></div>';
+    });
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna' }).mount();
+    const sr = shadow(w);
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+    const addNote = (el: Element, text: string) => {
+      (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+      el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+      click(el);
+      (sr.querySelector('textarea') as HTMLTextAreaElement).value = text;
+      (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    };
+    click(document.querySelector('[data-testid=remove]')!);
+    addNote(document.querySelector('[data-testid=dialog-title]')!, 'Name the plant');
+    const [n1] = w.getAnnotations();
+    expect(n1.steps?.map((s) => s.selector)).toEqual(['button[data-testid="remove"]']);
+    expect(n1.steps?.[0].textFingerprint).toBe('Remove');
+
+    history.pushState(null, '', '/elsewhere');
+    addNote(document.querySelector('h1')!, 'Bigger heading');
+    expect(w.getAnnotations()[1].steps).toBeUndefined();
+
+    for (let i = 0; i < 8; i++) click(document.querySelector('h1')!);
+    addNote(document.querySelector('h1')!, 'Again');
+    expect(w.getAnnotations()[2].steps).toHaveLength(5);
+    w.destroy();
+    history.replaceState(null, '', start);
+  });
+
   it('respects activation=query', () => {
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', activation: 'query' }).mount();
     expect(document.querySelector('peanut-gallery')).toBeNull();
     w.destroy();
+  });
+});
+
+describe('normalizePageUrl', () => {
+  it('drops the ?peanut switch and tracking params, keeps real query and hash routes', () => {
+    expect(normalizePageUrl('http://x.io/?peanut')).toBe('http://x.io/');
+    expect(normalizePageUrl('http://x.io/list?peanut&page=2&utm_campaign=a')).toBe('http://x.io/list?page=2');
+    expect(normalizePageUrl('http://x.io/#/checkout')).toBe('http://x.io/#/checkout');
+    expect(normalizePageUrl('http://x.io/about#team')).toBe('http://x.io/about');
   });
 });
 

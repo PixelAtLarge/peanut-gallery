@@ -63,7 +63,13 @@ export interface PeanutGalleryConfig {
   theme?: Partial<Theme>;
   /** Default spend cap in USD per `apply`/`review`/`variants` invocation (CLI --budget overrides). */
   budget?: number;
-  screenshot?: { width?: number; height?: number; fullPage?: boolean };
+  /**
+   * Screenshot size. `replayClicks` (default true): when a note's element isn't on the page as
+   * it first loads (a modal, a menu), click through what the reviewer clicked before leaving it,
+   * on the local dev server, then take the close-up. Set false if those clicks could cause side
+   * effects you don't want (e.g. a dev server wired to a real backend).
+   */
+  screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean };
   /** Branch prefix for proposals. */
   branchPrefix?: string;
   /** Labels (override only if you changed them in the widget). */
@@ -79,7 +85,7 @@ export interface ResolvedConfig extends PeanutGalleryConfig {
   models: { interpret: string; apply: string };
   branchPrefix: string;
   sourceHints: string[];
-  screenshot: { width: number; height: number; fullPage: boolean };
+  screenshot: { width: number; height: number; fullPage: boolean; replayClicks: boolean };
   resolvedTheme: Theme;
 }
 
@@ -102,7 +108,7 @@ export function withDefaults(cfg: PeanutGalleryConfig): ResolvedConfig {
       interpret: cfg.models?.interpret ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL_INTERPRET ?? 'claude-haiku-5-5',
       apply: cfg.models?.apply ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL ?? 'claude-sonnet-5-5',
     },
-    screenshot: { width: 1280, height: 800, fullPage: false, ...(cfg.screenshot ?? {}) },
+    screenshot: { width: 1280, height: 800, fullPage: false, replayClicks: true, ...(cfg.screenshot ?? {}) },
     resolvedTheme: resolveTheme(cfg.theme),
   };
 }

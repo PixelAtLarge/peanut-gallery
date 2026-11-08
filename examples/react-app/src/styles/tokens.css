@@ -1,0 +1,19 @@
+/* Design tokens. Use these variables; don't add raw colours. */
+:root {
+  --bg: #f6f3e4;
+  --surface: #ffffff;
+  --ink: #22272b;
+  --muted: #5c6670;
+  --line: #ded9c4;
+  --accent: #0f7b52;
+  --on-accent: #ffffff;
+  --danger: #b3261e;
+  --on-danger: #ffffff;
+  --radius: 12px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+}
