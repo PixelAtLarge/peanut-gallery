@@ -18,7 +18,7 @@
   /* Layout: the explainer video's language. A centred title card, then each step as a caption
      (chip, serif headline, muted copy) beside its visual in a white window or a carbon code card. */
   :root {
-    --bg: #CDE2F2;          /* Sea Glass: the video's ground */
+    --bg: #E1EDF6;          /* Sea Glass 100: calmer than the video's Sea Glass on wide screens */
     --surface: #FFFFFF;
     --ink: #22272B;         /* Carbon */
     --muted: #5A6268;
@@ -46,6 +46,20 @@
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
+  /* Ambient colour in the side margins, fixed to the window: soft blurred shapes in palette tints
+     (Hydrangea 200, Pistachio 200, Sea Glass 200, Sunnyside 50). Mostly hidden behind the content
+     on narrow screens; fills the empty margins on wide ones. */
+  body::before {
+    content: ""; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(28% 40% at 6% 20%, rgba(193, 217, 253, .9), transparent 70%),
+      radial-gradient(24% 34% at 12% 78%, rgba(207, 225, 180, .8), transparent 70%),
+      radial-gradient(26% 36% at 94% 26%, rgba(207, 225, 180, .65), transparent 70%),
+      radial-gradient(30% 40% at 90% 82%, rgba(205, 226, 242, 1), transparent 70%),
+      radial-gradient(20% 24% at 82% 50%, rgba(255, 246, 227, .9), transparent 70%),
+      radial-gradient(18% 22% at 20% 50%, rgba(255, 246, 227, .7), transparent 70%);
+    filter: blur(60px);
+  }
   a { color: var(--forest); text-underline-offset: 3px; }
   a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
   img { max-width: 100%; display: block; }
