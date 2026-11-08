@@ -1,4 +1,4 @@
-import { sessionToIssue, LABELS, type ReviewSession } from '@peanut-gallery/core';
+import { sessionToIssue, LABELS, type ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 
 export interface RelayOptions {
   /** Fine-grained PAT or GitHub App installation token with Issues: write on the repo. */
@@ -11,6 +11,12 @@ export interface RelayOptions {
   sharedKey?: string;
   /** Labels always applied. Defaults to peanut-gallery + peanut-gallery:feedback. */
   labels?: string[];
+  /**
+   * Extra labels a submission may ask for (the widget's `labels` option). Anything else the
+   * client sends is dropped, so the public endpoint can't set workflow labels such as
+   * peanut-gallery:accepted or create junk labels. Default: none beyond `labels`.
+   */
+  allowedLabels?: string[];
   /** Max annotations accepted in one submission. */
   maxAnnotations?: number;
   /** Override fetch (tests). */
@@ -27,7 +33,7 @@ export interface RelayResult {
 /**
  * Returns a Web-standard `(request: Request) => Promise<Response>` handler.
  * Works as-is on Cloudflare Workers, Vercel Edge/Node (web runtime), Deno, Bun, Netlify.
- * For Node's http module, see `@peanut-gallery/relay/node`.
+ * For Node's http module, see `@pixelatlarge/peanut-gallery-relay/node`.
  */
 export function createRelayHandler(opts: RelayOptions) {
   if (!opts.githubToken) throw new Error('relay: githubToken is required');
@@ -51,7 +57,23 @@ export function createRelayHandler(opts: RelayOptions) {
     };
   };
 
+  const baseLabels = opts.labels ?? [LABELS.root, LABELS.feedback];
+  const permitted = new Set([...baseLabels, ...(opts.allowedLabels ?? [])]);
+
   return async function handle(req: Request): Promise<Response> {
+    try {
+      return await handleInner(req);
+    } catch (err) {
+      // Never let a bad request escape as an unhandled error from a public endpoint.
+      const c = cors(req.headers.get('origin'));
+      return new Response(JSON.stringify({ error: 'relay error', detail: String((err as Error)?.message ?? err).slice(0, 200) }), {
+        status: 500,
+        headers: { 'content-type': 'application/json', ...c.headers },
+      });
+    }
+  };
+
+  async function handleInner(req: Request): Promise<Response> {
     const origin = req.headers.get('origin');
     const c = cors(origin);
     const json = (status: number, body: unknown) =>
@@ -62,20 +84,24 @@ export function createRelayHandler(opts: RelayOptions) {
     if (!c.ok) return json(403, { error: 'origin not allowed' });
     if (opts.sharedKey && req.headers.get('x-peanut-gallery-key') !== opts.sharedKey) return json(401, { error: 'bad key' });
 
-    let payload: { session?: ReviewSession; labels?: string[] };
+    let payload: { session?: ReviewSession; labels?: unknown };
     try {
       payload = await req.json();
     } catch {
       return json(400, { error: 'invalid json' });
     }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'expected a JSON object' });
     const session = payload.session;
     const problem = validate(session, max);
     if (problem) return json(400, { error: problem });
 
     const { title, body } = sessionToIssue(session!);
-    const labels = Array.from(new Set([...(opts.labels ?? [LABELS.root, LABELS.feedback]), ...(payload.labels ?? [])]));
+    const asked = Array.isArray(payload.labels) ? payload.labels.filter((l): l is string => typeof l === 'string') : [];
+    const labels = Array.from(new Set([...baseLabels, ...asked.filter((l) => permitted.has(l))]));
 
-    const res = await f(`${apiBase}/repos/${opts.repo}/issues`, {
+    let res: Response;
+    try {
+      res = await f(`${apiBase}/repos/${opts.repo}/issues`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${opts.githubToken}`,
@@ -85,7 +111,10 @@ export function createRelayHandler(opts: RelayOptions) {
         'x-github-api-version': '2022-11-28',
       },
       body: JSON.stringify({ title, body, labels }),
-    });
+      });
+    } catch (err) {
+      return json(502, { error: 'could not reach GitHub', detail: String((err as Error)?.message ?? err).slice(0, 200) });
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       return json(502, { error: `github ${res.status}`, detail: text.slice(0, 500) });
@@ -93,7 +122,7 @@ export function createRelayHandler(opts: RelayOptions) {
     const issue = (await res.json()) as { html_url: string; number: number };
     const result: RelayResult = { issueUrl: issue.html_url, issueNumber: issue.number };
     return json(201, result);
-  };
+  }
 }
 
 function validate(s: ReviewSession | undefined, max: number): string | null {
@@ -102,9 +131,11 @@ function validate(s: ReviewSession | undefined, max: number): string | null {
   if (!Array.isArray(s.annotations) || s.annotations.length === 0) return 'no annotations';
   if (s.annotations.length > max) return `too many annotations (max ${max})`;
   for (const a of s.annotations) {
+    if (!a || typeof a !== 'object') return 'annotation invalid';
     if (typeof a.text !== 'string' || a.text.length === 0 || a.text.length > 5000) return 'annotation text invalid';
     if (!a.anchor || typeof a.anchor.selector !== 'string' || a.anchor.selector.length > 2000) return 'anchor invalid';
     if (typeof a.pageUrl !== 'string' || a.pageUrl.length > 2000) return 'pageUrl invalid';
+    if (a.viewport !== undefined && (typeof a.viewport !== 'object' || !Number.isFinite(a.viewport?.width) || !Number.isFinite(a.viewport?.height))) return 'viewport invalid';
   }
   return null;
 }

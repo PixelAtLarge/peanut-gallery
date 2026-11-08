@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Proposal } from '@peanut-gallery/core';
+import type { Proposal } from '@pixelatlarge/peanut-gallery-core';
 import type { FlatAnnotation } from './interpret.js';
 import { evaluateToolUse, type AgentPolicy } from './policy.js';
 import { designSystemBrief, type DesignSystemConfig } from './design.js';

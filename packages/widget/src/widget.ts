@@ -11,7 +11,7 @@ import {
   themeToCssVars,
   DEFAULT_FONTS_URL,
   type Theme,
-} from '@peanut-gallery/core';
+} from '@pixelatlarge/peanut-gallery-core';
 import { css } from './styles.js';
 
 export interface PeanutGalleryConfig {

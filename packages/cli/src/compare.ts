@@ -1,4 +1,4 @@
-import { DEFAULT_FONTS_URL, DEFAULT_THEME, themeToCssVars, type Proposal, type Theme } from '@peanut-gallery/core';
+import { DEFAULT_FONTS_URL, DEFAULT_THEME, themeToCssVars, type Proposal, type Theme } from '@pixelatlarge/peanut-gallery-core';
 
 export interface ComparePair {
   label: string;

@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { issueToSession, type ReviewSession } from '@peanut-gallery/core';
+import { issueToSession, type ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 
 const run = promisify(execFile);
 

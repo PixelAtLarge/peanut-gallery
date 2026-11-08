@@ -1,5 +1,5 @@
 import pc from 'picocolors';
-import { LABELS } from '@peanut-gallery/core';
+import { LABELS } from '@pixelatlarge/peanut-gallery-core';
 import { loadConfig, readJson, workPath, writeJson } from '../config.js';
 import { addLabels, commentOnIssue, getCommentReactions, getIssueCommentsAfter } from '../github.js';
 import type { RunRecord } from './apply.js';

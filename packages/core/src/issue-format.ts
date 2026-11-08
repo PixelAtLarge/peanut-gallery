@@ -16,10 +16,10 @@ export function sessionToIssue(session: ReviewSession): { title: string; body: s
     if (a.text.includes('\n')) lines.push(a.text.split('\n').slice(1).join('\n'));
     lines.push('');
     lines.push(`- **Page:** ${a.pageUrl}`);
-    lines.push(`- **Element:** \`${a.anchor.tag}\` → \`${a.anchor.selector}\``);
+    lines.push(`- **Element:** \`${a.anchor.tag ?? '?'}\` → \`${a.anchor.selector}\``);
     if (a.anchor.textFingerprint) lines.push(`- **Text:** “${a.anchor.textFingerprint}”`);
     if (a.anchor.context) lines.push(`- **Near:** ${a.anchor.context}`);
-    lines.push(`- **Viewport:** ${a.viewport.width}×${a.viewport.height}`);
+    if (a.viewport && Number.isFinite(a.viewport.width) && Number.isFinite(a.viewport.height)) lines.push(`- **Viewport:** ${a.viewport.width}×${a.viewport.height}`);
     lines.push('');
   });
   lines.push('<details><summary>peanut-gallery data (do not edit)</summary>');

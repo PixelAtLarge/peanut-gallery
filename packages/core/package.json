@@ -1,5 +1,5 @@
 {
-  "name": "@peanut-gallery/core",
+  "name": "@pixelatlarge/peanut-gallery-core",
   "version": "0.1.0",
   "description": "Shared types, DOM anchoring, and GitHub issue serialization for peanut-gallery.",
   "keywords": [
@@ -28,12 +28,17 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

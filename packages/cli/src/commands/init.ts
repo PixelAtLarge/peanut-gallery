@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import pc from 'picocolors';
-import { LABELS } from '@peanut-gallery/core';
+import { LABELS } from '@pixelatlarge/peanut-gallery-core';
 import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
 import { ensureLabels, gh, git } from '../github.js';
 import { detectDesignSystem } from '../design.js';
@@ -74,10 +74,10 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
   console.log(`
 ${pc.bold('Add the widget to your prototype:')}
 
-  ${pc.cyan(`<script src="https://unpkg.com/@peanut-gallery/widget/dist/peanut-gallery.global.js" data-repo="${repo}" data-activation="query"></script>`)}
+  ${pc.cyan(`<script src="https://unpkg.com/@pixelatlarge/peanut-gallery-widget/dist/peanut-gallery.global.js" data-repo="${repo}" data-activation="query"></script>`)}
 
   then open the prototype with ${pc.cyan('?peanut')} in the URL. Reviewers click "Comment", click elements, write notes, and "Submit to GitHub".
-  For one-click submission without GitHub accounts, deploy @peanut-gallery/relay and add ${pc.cyan('data-relay-url="https://…/api/peanut-gallery"')}.
+  For one-click submission without GitHub accounts, deploy @pixelatlarge/peanut-gallery-relay and add ${pc.cyan('data-relay-url="https://…/api/peanut-gallery"')}.
 
 ${pc.bold('Then, in this repo:')}
   ${pc.cyan('npx playwright install chromium')}   ${pc.dim('(once, for screenshots)')}

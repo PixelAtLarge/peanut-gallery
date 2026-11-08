@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ElementAnchor } from '@peanut-gallery/core';
+import type { ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
 
 export interface ShotTarget {
   /** Stable key, used for filenames. */

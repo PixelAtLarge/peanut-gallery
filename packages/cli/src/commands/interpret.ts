@@ -1,5 +1,5 @@
 import pc from 'picocolors';
-import type { Proposal } from '@peanut-gallery/core';
+import type { Proposal } from '@pixelatlarge/peanut-gallery-core';
 import { loadConfig, readJson, workPath, writeJson } from '../config.js';
 import type { FeedbackIssue } from '../github.js';
 import { flatten, interpret } from '../interpret.js';

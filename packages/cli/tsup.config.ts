@@ -17,7 +17,7 @@ export default defineConfig([
     format: ['iife'],
     platform: 'browser',
     minify: true,
-    noExternal: ['@peanut-gallery/core'],
+    noExternal: ['@pixelatlarge/peanut-gallery-core'],
     outExtension: () => ({ js: '.global.js' }),
   },
 ]);
