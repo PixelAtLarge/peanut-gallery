@@ -1,4 +1,4 @@
-import { sessionToIssue, LABELS, type ReviewSession } from '@peanut-gallery/core';
+import { sessionToIssue, LABELS, type ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 
 export interface RelayOptions {
   /** Fine-grained PAT or GitHub App installation token with Issues: write on the repo. */
@@ -33,7 +33,7 @@ export interface RelayResult {
 /**
  * Returns a Web-standard `(request: Request) => Promise<Response>` handler.
  * Works as-is on Cloudflare Workers, Vercel Edge/Node (web runtime), Deno, Bun, Netlify.
- * For Node's http module, see `@peanut-gallery/relay/node`.
+ * For Node's http module, see `@pixelatlarge/peanut-gallery-relay/node`.
  */
 export function createRelayHandler(opts: RelayOptions) {
   if (!opts.githubToken) throw new Error('relay: githubToken is required');

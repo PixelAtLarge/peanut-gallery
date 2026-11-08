@@ -4,7 +4,7 @@ import { designSystemSummary } from '../design.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
-import type { Proposal } from '@peanut-gallery/core';
+import type { Proposal } from '@pixelatlarge/peanut-gallery-core';
 import { readJson, workPath, writeJson } from '../config.js';
 import { commentOnIssue, publishAssets } from '../github.js';
 import { renderOptionsPage, type OptionColumn } from '../compare.js';

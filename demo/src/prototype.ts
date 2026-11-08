@@ -1,7 +1,7 @@
 // Runs inside the prototype frame: the real widget, starting with the two example notes from the
 // recorded run. Submitting hands the notes to the demo page instead of GitHub.
-import { init } from '@peanut-gallery/widget';
-import type { ReviewSession } from '@peanut-gallery/core';
+import { init } from '@pixelatlarge/peanut-gallery-widget';
+import type { ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 import example from './example-session.json';
 
 const here = location.origin + location.pathname + location.search;

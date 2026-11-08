@@ -28,10 +28,10 @@ Three packages, one CLI:
 
 | package | what it is |
 | --- | --- |
-| `@peanut-gallery/widget` | Drop-in annotation layer (script tag or React). Shadow-DOM UI, pins attached to DOM elements, persists across pages, submits to GitHub. |
-| `@peanut-gallery/relay` | Optional one-file serverless function that creates issues with a server-held token (one-click submit, reviewers don't need GitHub). |
+| `@pixelatlarge/peanut-gallery-widget` | Drop-in annotation layer (script tag or React). Shadow-DOM UI, pins attached to DOM elements, persists across pages, submits to GitHub. |
+| `@pixelatlarge/peanut-gallery-relay` | Optional one-file serverless function that creates issues with a server-held token (one-click submit, reviewers don't need GitHub). |
 | `peanut-gallery` (CLI) | Runs in the prototype repo: `init · pull · interpret · apply · review · votes · compare`. |
-| `@peanut-gallery/core` | Shared types, robust element anchoring, issue body format. |
+| `@pixelatlarge/peanut-gallery-core` | Shared types, robust element anchoring, issue body format. |
 
 **What you need — and what you don't**
 
@@ -51,7 +51,7 @@ The demo is live at **https://pixelatlarge.github.io/peanut-gallery/** and redep
 **Script tag (any page):**
 
 ```html
-<script src="https://unpkg.com/@peanut-gallery/widget/dist/peanut-gallery.global.js"
+<script src="https://unpkg.com/@pixelatlarge/peanut-gallery-widget/dist/peanut-gallery.global.js"
         data-repo="owner/prototype-repo"
         data-activation="query"></script>
 ```
@@ -61,7 +61,7 @@ Open the prototype with `?peanut` in the URL. A toolbar appears: **Comment** →
 **React:**
 
 ```tsx
-import { PeanutGallery } from '@peanut-gallery/widget/react';
+import { PeanutGallery } from '@pixelatlarge/peanut-gallery-widget/react';
 
 {import.meta.env.VITE_PEANUT_GALLERY && <PeanutGallery repo="owner/prototype-repo" />}
 ```
@@ -69,7 +69,7 @@ import { PeanutGallery } from '@peanut-gallery/widget/react';
 **Programmatic:**
 
 ```ts
-import { init } from '@peanut-gallery/widget';
+import { init } from '@pixelatlarge/peanut-gallery-widget';
 init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery', author: 'Anna' });
 ```
 
@@ -107,7 +107,7 @@ The browser can't hold a GitHub token. If reviewers shouldn't need GitHub accoun
 
 ```ts
 // api/peanut-gallery.ts (Vercel) — templates for Cloudflare, Netlify and Node are in packages/relay/templates
-import { createRelayHandler } from '@peanut-gallery/relay';
+import { createRelayHandler } from '@pixelatlarge/peanut-gallery-relay';
 export default createRelayHandler({
   githubToken: process.env.PEANUT_GALLERY_TOKEN!,        // fine-grained PAT, Issues: write on that one repo
   repo: process.env.PEANUT_GALLERY_REPO!,

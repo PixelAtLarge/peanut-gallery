@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
-import { LABELS, type Proposal, type ProposalRun } from '@peanut-gallery/core';
+import { LABELS, type Proposal, type ProposalRun } from '@pixelatlarge/peanut-gallery-core';
 import { implementProposal } from '../agent.js';
 import { loadConfig, readJson, workPath, writeJson, WORK_DIR, type ResolvedConfig } from '../config.js';
 import { startDevServer, type RunningServer } from '../devserver.js';

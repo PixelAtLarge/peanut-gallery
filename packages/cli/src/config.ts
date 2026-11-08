@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveTheme, type Theme } from '@peanut-gallery/core';
+import { resolveTheme, type Theme } from '@pixelatlarge/peanut-gallery-core';
 import type { AgentPolicy } from './policy.js';
 import type { DesignSystemConfig } from './design.js';
 import type { CheckConfig } from './checks.js';

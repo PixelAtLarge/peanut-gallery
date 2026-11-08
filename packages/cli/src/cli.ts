@@ -12,7 +12,7 @@ import { votesCommand } from './commands/votes.js';
 import { variantsCommand } from './commands/variants.js';
 import { loadConfig, readJson, workPath, writeJson } from './config.js';
 import type { RunRecord } from './commands/apply.js';
-import type { Proposal } from '@peanut-gallery/core';
+import type { Proposal } from '@pixelatlarge/peanut-gallery-core';
 import { git } from './github.js';
 
 const program = new Command()

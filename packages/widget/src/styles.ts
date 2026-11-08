@@ -1,4 +1,4 @@
-// All colours and fonts come from theme CSS variables (see @peanut-gallery/core theme.ts).
+// All colours and fonts come from theme CSS variables (see @pixelatlarge/peanut-gallery-core theme.ts).
 export const css = `
 :host { all: initial; }
 * { box-sizing: border-box; font-family: var(--pg-font-body); font-size: 13px; line-height: 1.4; color: var(--pg-text); }

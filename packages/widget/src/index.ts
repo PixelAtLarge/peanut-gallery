@@ -1,7 +1,7 @@
 import { PeanutGalleryWidget, type PeanutGalleryConfig } from './widget.js';
 
 export { PeanutGalleryWidget, type PeanutGalleryConfig };
-export type { Annotation, AnnotationKind, ReviewSession } from '@peanut-gallery/core';
+export type { Annotation, AnnotationKind, ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 
 let instance: PeanutGalleryWidget | null = null;
 

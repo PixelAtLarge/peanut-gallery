@@ -1,5 +1,5 @@
 // Cloudflare Workers: `wrangler secret put PEANUT_GALLERY_TOKEN`, set PEANUT_GALLERY_REPO etc. as vars.
-import { createRelayHandler } from '@peanut-gallery/relay';
+import { createRelayHandler } from '@pixelatlarge/peanut-gallery-relay';
 
 interface Env { PEANUT_GALLERY_TOKEN: string; PEANUT_GALLERY_REPO: string; PEANUT_GALLERY_ORIGINS?: string; PEANUT_GALLERY_KEY?: string }
 

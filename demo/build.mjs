@@ -19,8 +19,8 @@ await build({
   legalComments: 'none',
   // Resolve workspace packages from source so the demo always matches the repo.
   alias: {
-    '@peanut-gallery/core': join(here, '../packages/core/src/index.ts'),
-    '@peanut-gallery/widget': join(here, '../packages/widget/src/index.ts'),
+    '@pixelatlarge/peanut-gallery-core': join(here, '../packages/core/src/index.ts'),
+    '@pixelatlarge/peanut-gallery-widget': join(here, '../packages/widget/src/index.ts'),
   },
 });
 for (const f of ['index.html', 'checkout.html', 'checkout.css']) cpSync(join(here, f), join(out, f));

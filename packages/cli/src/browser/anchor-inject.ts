@@ -1,4 +1,4 @@
-import { resolveAnchor, type ElementAnchor } from '@peanut-gallery/core';
+import { resolveAnchor, type ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
 
 declare global {
   interface Window {

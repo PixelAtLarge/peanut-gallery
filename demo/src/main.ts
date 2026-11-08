@@ -1,5 +1,5 @@
 // Demo page: live GitHub-issue preview from the widget's notes, before/after slider, votes, copy buttons.
-import { sessionToIssue, type ReviewSession } from '@peanut-gallery/core';
+import { sessionToIssue, type ReviewSession } from '@pixelatlarge/peanut-gallery-core';
 import example from './example-session.json';
 
 const $ = <T extends Element = HTMLElement>(sel: string) => document.querySelector(sel) as T;

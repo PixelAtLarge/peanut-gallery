@@ -1,5 +1,5 @@
 // Netlify Functions v2: copy to netlify/functions/peanut-gallery.ts
-import { createRelayHandler } from '@peanut-gallery/relay';
+import { createRelayHandler } from '@pixelatlarge/peanut-gallery-relay';
 
 const handle = createRelayHandler({
   githubToken: process.env.PEANUT_GALLERY_TOKEN!,

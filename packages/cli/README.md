@@ -1,6 +1,6 @@
 # peanut-gallery
 
-Prototype feedback in, pull requests out. This CLI reads reviewer notes from GitHub issues (left with [`@peanut-gallery/widget`](https://www.npmjs.com/package/@peanut-gallery/widget)), has Claude group them into proposals and implement each one on its own branch, captures before/after screenshots, opens a PR per change and tallies reviewers' votes.
+Prototype feedback in, pull requests out. This CLI reads reviewer notes from GitHub issues (left with [`@pixelatlarge/peanut-gallery-widget`](https://www.npmjs.com/package/@pixelatlarge/peanut-gallery-widget)), has Claude group them into proposals and implement each one on its own branch, captures before/after screenshots, opens a PR per change and tallies reviewers' votes.
 
 [Watch the explainer and try the demo](https://github.com/PixelAtLarge/peanut-gallery#readme).
 

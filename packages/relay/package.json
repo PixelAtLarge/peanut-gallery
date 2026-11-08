@@ -1,5 +1,5 @@
 {
-  "name": "@peanut-gallery/relay",
+  "name": "@pixelatlarge/peanut-gallery-relay",
   "version": "0.1.0",
   "description": "Tiny serverless relay that turns peanut-gallery widget submissions into GitHub Issues. Deploy to Vercel, Cloudflare, Netlify or Node.",
   "keywords": [
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@peanut-gallery/core": "0.1.0"
+    "@pixelatlarge/peanut-gallery-core": "0.1.0"
   },
   "license": "MIT",
   "publishConfig": {

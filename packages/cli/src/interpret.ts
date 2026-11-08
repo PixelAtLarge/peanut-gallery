@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { completeJson, extractJson } from './llm.js';
-import { uid, type Annotation, type Proposal } from '@peanut-gallery/core';
+import { uid, type Annotation, type Proposal } from '@pixelatlarge/peanut-gallery-core';
 import type { FeedbackIssue } from './github.js';
 
 export interface FlatAnnotation extends Annotation {

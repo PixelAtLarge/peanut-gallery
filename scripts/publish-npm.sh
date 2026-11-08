@@ -19,14 +19,15 @@ fi
 echo "  Logged in as $(npm whoami)."
 
 echo
-echo "▸ Checking the @peanut-gallery organization on npm…"
-until npm org ls peanut-gallery >/dev/null 2>&1; do
-  echo "  The scoped packages need a free npm organization named 'peanut-gallery' that you own."
-  echo "  Create it here (choose the free plan for public packages):"
+SCOPE=pixelatlarge
+echo "▸ Checking you can publish to @$SCOPE…"
+until [ "$(npm whoami)" = "$SCOPE" ] || npm org ls "$SCOPE" >/dev/null 2>&1; do
+  echo "  You're logged in as '$(npm whoami)'. The @$SCOPE packages need either that npm"
+  echo "  username, or a free npm organization named '$SCOPE' that you own:"
   echo "    https://www.npmjs.com/org/create"
-  read -r -p "  Press return once it exists… " _
+  read -r -p "  Press return once that's sorted (or Ctrl-C to stop)… " _
 done
-echo "  Found it."
+echo "  OK."
 
 echo
 for p in core widget relay cli; do
