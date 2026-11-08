@@ -20,10 +20,10 @@ echo "  Logged in as $(npm whoami)."
 
 echo
 SCOPE=pixelatlarge
-echo "▸ Checking you can publish to @$SCOPE…"
-until [ "$(npm whoami)" = "$SCOPE" ] || npm org ls "$SCOPE" >/dev/null 2>&1; do
-  echo "  You're logged in as '$(npm whoami)'. The @$SCOPE packages need either that npm"
-  echo "  username, or a free npm organization named '$SCOPE' that you own:"
+echo "▸ Checking you can publish to @${SCOPE}…"
+until [ "$(npm whoami)" = "${SCOPE}" ] || npm org ls "${SCOPE}" >/dev/null 2>&1; do
+  echo "  You're logged in as '$(npm whoami)'. The @${SCOPE} packages need either that npm"
+  echo "  username, or a free npm organization named '${SCOPE}' that you own:"
   echo "    https://www.npmjs.com/org/create"
   read -r -p "  Press return once that's sorted (or Ctrl-C to stop)… " _
 done
@@ -31,19 +31,19 @@ echo "  OK."
 
 echo
 for p in core widget relay cli; do
-  name=$(node -p "require('./packages/$p/package.json').name")
-  version=$(node -p "require('./packages/$p/package.json').version")
-  if npm view "$name@$version" version >/dev/null 2>&1; then
-    echo "▸ $name@$version is already on npm, skipping."
+  name=$(node -p "require('./packages/${p}/package.json').name")
+  version=$(node -p "require('./packages/${p}/package.json').version")
+  if npm view "${name}@${version}" version >/dev/null 2>&1; then
+    echo "▸ ${name}@${version} is already on npm, skipping."
   else
-    echo "▸ Publishing $name@$version…"
-    npm publish -w "packages/$p"
+    echo "▸ Publishing ${name}@${version}…"
+    npm publish -w "packages/${p}"
   fi
 done
 
 echo
 echo "✔ Done. Packages:"
 for p in core widget relay cli; do
-  name=$(node -p "require('./packages/$p/package.json').name")
-  echo "  https://www.npmjs.com/package/$name"
+  name=$(node -p "require('./packages/${p}/package.json').name")
+  echo "  https://www.npmjs.com/package/${name}"
 done
