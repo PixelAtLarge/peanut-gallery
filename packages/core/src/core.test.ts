@@ -74,7 +74,7 @@ const session: ReviewSession = {
 describe('issue format', () => {
   it('round-trips a session through an issue body', () => {
     const { title, body } = sessionToIssue(session);
-    expect(title).toBe('Prototype feedback: 1 comment on /checkout');
+    expect(title).toBe('Feedback: 1 comment on /checkout');
     expect(body).toContain('### 1. [visual] This button is too small');
     expect(issueToSession(body)).toEqual(session);
   });

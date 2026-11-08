@@ -4,7 +4,7 @@ import { ISSUE_BLOCK_LANG, stepLabel, type Annotation, type ReviewSession } from
 export function sessionToIssue(session: ReviewSession): { title: string; body: string } {
   const n = session.annotations.length;
   const page = safePath(session.annotations[0]?.pageUrl ?? session.prototypeUrl);
-  const title = `Prototype feedback: ${n} comment${n === 1 ? '' : 's'} on ${page}`;
+  const title = `Feedback: ${n} comment${n === 1 ? '' : 's'} on ${page}`;
 
   const lines: string[] = [];
   lines.push(`**Prototype:** ${session.prototypeUrl}`);

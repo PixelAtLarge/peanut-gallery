@@ -64,7 +64,7 @@ export async function initCommand(opts: { yes?: boolean; repo?: string; prototyp
 
   await ensureLabels(repo, [
     { name: LABELS.root, color: '1E4D36', description: 'Created by peanut-gallery' },
-    { name: LABELS.feedback, color: 'EAC26C', description: 'Prototype feedback captured with the peanut-gallery widget' },
+    { name: LABELS.feedback, color: 'EAC26C', description: 'Feedback captured with the peanut-gallery widget' },
     { name: LABELS.proposal, color: '6C8EBD', description: 'A peanut-gallery proposal / PR exists for this feedback' },
     { name: LABELS.accepted, color: '0F7B52', description: 'Reviewers preferred the "after"' },
     { name: LABELS.rejected, color: 'A5B0B6', description: 'Reviewers preferred the "before"' },

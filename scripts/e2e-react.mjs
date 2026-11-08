@@ -224,7 +224,7 @@ const fakeClient = { messages: { create: async () => ({ content: [{ type: 'text'
 }) }] }) } };
 const { proposals } = await lib.interpret(flat, REAL_AI ? { model: cfg.models?.interpret ?? 'claude-haiku-5-5' } : { model: 'stand-in', client: fakeClient });
 writeFileSync('.peanut-gallery/proposals.json', JSON.stringify(proposals, null, 2));
-check('interpret produced proposals', proposals.length >= 2, proposals.map((p) => p.title).join(' | '));
+check('interpret proposed changes for the pay button and the dialog', [pay, modal].every((a) => proposals.some((p) => p.annotationIds.includes(a.id))), proposals.map((p) => p.title).join(' | '));
 
 // ── 5. apply: worktrees on the branch → Vite in each → screenshots → PRs ──────
 const edit = (cwd, file, from, to) => {
@@ -244,8 +244,12 @@ const fakeImplement = async (p, anns, { cwd }) => {
 };
 if (!REAL_AI) process.env.ANTHROPIC_API_KEY ??= 'stand-in';
 const runs = await lib.applyCommand({ proposals, issues: [ours], port: 4440, ...(REAL_AI ? {} : { implement: fakeImplement }) });
-const payRun = runs.find((r) => /pay/i.test(r.title ?? '')) ?? runs[0];
-const modalRun = runs.find((r) => r !== payRun);
+// Find each change by the note it addresses (real Claude may word titles differently,
+// merge notes, or also propose the photo change).
+const runFor = (ann) => runs.find((r) => proposals.find((p) => p.id === r.proposalId)?.annotationIds.includes(ann.id));
+const payRun = runFor(pay) ?? runs[0];
+const modalRun = runFor(modal);
+const shotFor = (run, ann) => run?.screenshots?.find((s) => s.label.includes(ann.anchor.textFingerprint.slice(0, 20))) ?? run?.screenshots?.[0];
 for (const r of runs) console.log(`   ${r.proposalId}: ${r.status ?? ''} ${r.branch ?? ''} ${r.prUrl ?? r.error ?? ''}`);
 check('each change got its own branch and PR against the app branch', runs.length >= 2 && runs.every((r) => r.prUrl), runs.map((r) => r.prUrl).join(' , '));
 const prBase = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}`)).base.ref;
@@ -257,11 +261,11 @@ const shotWidth = (f, run) => {
   const abs = [f, run?.localCompareDir && join(run.localCompareDir, f), run?.localCompareDir && join(DIR, run.localCompareDir, f), join(DIR, '.peanut-gallery/compare', run?.proposalId ?? '', f)].find((x) => x && existsSync(x));
   return abs ? readFileSync(abs).readUInt32BE(16) / 2 : 0;
 };
-const payShot = payRun.screenshots?.[0];
-check('pay change: close-up of the button on /checkout', payShot && shotWidth(payShot.after, payRun) > 0 && shotWidth(payShot.after, payRun) < 1280, `${payShot?.label}: ${shotWidth(payShot?.after, payRun)}px wide`);
+const payShot = shotFor(payRun, pay);
+check(`pay change: close-up of the button on /checkout`, payShot && shotWidth(payShot.after, payRun) > 0 && shotWidth(payShot.after, payRun) < 1280, `${payShot?.label}: ${shotWidth(payShot?.after, payRun)}px wide`);
 const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}/files`)).map((f) => f.filename);
-check('PR contains the JSX/CSS change and its comparison', prFiles.includes('src/pages/Checkout.jsx') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
-const modalShot = modalRun?.screenshots?.[0];
+check('PR contains the source change and its comparison', prFiles.some((f) => f.startsWith('src/')) && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
+const modalShot = shotFor(modalRun, modal);
 check('modal change: clicks replayed, close-up of the dialog title before and after', modalShot && /after clicking “Remove”/.test(modalShot.label) && shotWidth(modalShot.before, modalRun) > 0 && shotWidth(modalShot.before, modalRun) < 1280 && shotWidth(modalShot.after, modalRun) < 1280, `${modalShot?.label} · ${shotWidth(modalShot?.before, modalRun)}px / ${shotWidth(modalShot?.after, modalRun)}px wide`);
 
 summary();

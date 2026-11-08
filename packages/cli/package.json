@@ -1,7 +1,7 @@
 {
   "name": "peanut-gallery",
   "version": "0.1.1",
-  "description": "CLI: pull prototype feedback from GitHub Issues, let Claude propose and implement design updates, generate before/after comparisons, and open PRs.",
+  "description": "CLI: pull feedback on your prototype or web app from GitHub Issues, let Claude propose and implement design updates, generate before/after comparisons, and open PRs.",
   "keywords": [
     "prototype",
     "feedback",
