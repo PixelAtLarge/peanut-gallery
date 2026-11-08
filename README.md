@@ -4,7 +4,7 @@
 
 **[Try the live demo →](https://pixelatlarge.github.io/peanut-gallery/)**
 
-https://github.com/user-attachments/assets/4dc13dca-2f3b-479b-955e-1d63bf59098f
+https://github.com/user-attachments/assets/6f9dd8ca-1b8b-4670-8693-3aa33aff28fa
 
 Annotate your prototype or web app → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
