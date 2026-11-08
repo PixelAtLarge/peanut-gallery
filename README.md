@@ -2,6 +2,8 @@
 
 > Where feedback actually ships.
 
+**[Try the live demo →](https://pixelatlarge.github.io/peanut-gallery/)**
+
 Annotate a hosted prototype → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
 ```
@@ -42,7 +44,7 @@ Three packages, one CLI:
 
 ## Try the demo
 
-`npm run demo:build` builds a static demo into `demo/dist`: a sample checkout with the real widget, a live preview of the GitHub issue your notes create, and the before/after, vote and options steps from a recorded real-Claude run. Deploy that folder to any static host (GitHub Pages, Netlify, Vercel). Nothing in the demo calls Claude or GitHub.
+The demo is live at **https://pixelatlarge.github.io/peanut-gallery/** and redeploys on every push to `main`. To build it yourself, `npm run demo:build` builds a static demo into `demo/dist`: a sample checkout with the real widget, a live preview of the GitHub issue your notes create, and the before/after, vote and options steps from a recorded real-Claude run. Deploy that folder to any static host (GitHub Pages, Netlify, Vercel). Nothing in the demo calls Claude or GitHub.
 
 ## 1. Add the widget to the prototype
 
