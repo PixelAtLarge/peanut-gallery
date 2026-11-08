@@ -58,7 +58,7 @@ let current = example as unknown as ReviewSession;
 function renderIssue(session: ReviewSession) {
   current = session;
   const { title, body } = sessionToIssue({ ...session, author: session.author ?? 'You' });
-  $('#issue-title').textContent = session.annotations.length ? title : 'Prototype feedback: no notes yet';
+  $('#issue-title').textContent = session.annotations.length ? title : 'Feedback: no notes yet';
   $('#issue-body').innerHTML = session.annotations.length
     ? renderIssueMarkdown(body)
     : '<p>Add a note on the checkout above and it appears here.</p>';

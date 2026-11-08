@@ -1,7 +1,7 @@
 {
   "name": "@pixelatlarge/peanut-gallery-widget",
   "version": "0.1.1",
-  "description": "Drop-in annotation layer for hosted prototypes. Comments attach to DOM elements and submit to GitHub Issues.",
+  "description": "Drop-in annotation layer for prototypes and web apps. Comments attach to DOM elements and submit to GitHub Issues.",
   "keywords": [
     "prototype",
     "feedback",

@@ -6,7 +6,7 @@
 
 https://github.com/user-attachments/assets/4dc13dca-2f3b-479b-955e-1d63bf59098f
 
-Annotate a hosted prototype → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
+Annotate your prototype or web app → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
 ```
 reviewer (browser)            your repo (CLI)                       GitHub
@@ -22,7 +22,7 @@ click element, write note ─▶  issue w/ selector+text+page   ◀──── 
                                 votes     ─ tally reactions/replies → label accepted/rejected
 ```
 
-| Reviewers annotate the live prototype | Each change ships with a before / after | Not sold? Generate options |
+| Reviewers annotate the live page | Each change ships with a before / after | Not sold? Generate options |
 | --- | --- | --- |
 | ![Widget](docs/images/widget.png) | ![Before and after](docs/images/before-after.png) | ![Options](docs/images/options.png) |
 
@@ -32,7 +32,7 @@ Three packages, one CLI:
 | --- | --- |
 | `@pixelatlarge/peanut-gallery-widget` | Drop-in annotation layer (script tag or React). Shadow-DOM UI, pins attached to DOM elements, persists across pages, submits to GitHub. |
 | `@pixelatlarge/peanut-gallery-relay` | Optional one-file serverless function that creates issues with a server-held token (one-click submit, reviewers don't need GitHub). |
-| `peanut-gallery` (CLI) | Runs in the prototype repo: `init · pull · interpret · apply · review · votes · compare`. |
+| `peanut-gallery` (CLI) | Runs in your repo: `init · pull · interpret · apply · review · votes · compare`. |
 | `@pixelatlarge/peanut-gallery-core` | Shared types, robust element anchoring, issue body format. |
 
 **What you need — and what you don't**
@@ -48,7 +48,7 @@ Three packages, one CLI:
 
 The demo is live at **https://pixelatlarge.github.io/peanut-gallery/** and redeploys on every push to `main`. To build it yourself, `npm run demo:build` builds a static demo into `demo/dist`: a sample checkout with the real widget, a live preview of the GitHub issue your notes create, and the before/after, vote and options steps from a recorded real-Claude run. Deploy that folder to any static host (GitHub Pages, Netlify, Vercel). Nothing in the demo calls Claude or GitHub.
 
-## 1. Add the widget to the prototype
+## 1. Add the widget to your prototype or app
 
 **Script tag (any page):**
 
@@ -58,7 +58,7 @@ The demo is live at **https://pixelatlarge.github.io/peanut-gallery/** and redep
         data-activation="query"></script>
 ```
 
-Open the prototype with `?peanut` in the URL. A toolbar appears: **Comment** → click any element → write a note (optionally tag it bug / copy / layout / visual / flow / question / praise). Pins are numbered and re-attach to their element on reload, resize and reorder. **Review** lists everything; **Submit to GitHub** opens a prefilled issue.
+Open the page with `?peanut` in the URL. A toolbar appears: **Comment** → click any element → write a note (optionally tag it bug / copy / layout / visual / flow / question / praise). Pins are numbered and re-attach to their element on reload, resize and reorder. **Review** lists everything; **Submit to GitHub** opens a prefilled issue.
 
 **React:**
 
@@ -124,7 +124,7 @@ export default createRelayHandler({
 
 Then `data-relay-url="https://…/api/peanut-gallery"` on the widget.
 
-## 3. Run the loop in the prototype repo
+## 3. Run the loop in your repo
 
 ```bash
 npm i -D peanut-gallery
@@ -260,7 +260,7 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
 - Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
-- Prototypes that need auth: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state.
+- Apps that need a login: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state.
 - Screenshots replay the reviewer's clicks to reach modals and menus, but not typing: a state that needs form input (step 3 of a checkout) falls back to the full page and says so.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.
