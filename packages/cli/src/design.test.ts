@@ -146,3 +146,28 @@ describe('checks', () => {
     expect(checksMarkdown([])).toBe('');
   });
 });
+
+describe('work folder', () => {
+  it('git-ignores local compare copies, and adds missing entries to an existing ignore file', async () => {
+    const { ensureWorkDir } = await import('./config.js');
+    const { readFileSync: read, writeFileSync: write, mkdirSync: mk } = await import('node:fs');
+    const d = tmp();
+    const cwd = process.cwd();
+    try {
+      process.chdir(d);
+      ensureWorkDir();
+      expect(read(join(d, '.peanut-gallery/.gitignore'), 'utf8').split('\n')).toEqual(expect.arrayContaining(['worktrees/', 'compare/', 'runs.json']));
+      const d2 = tmp();
+      process.chdir(d2);
+      mk(join(d2, '.peanut-gallery'));
+      write(join(d2, '.peanut-gallery/.gitignore'), 'worktrees/\nfeedback.json\nproposals.json\nruns.json\nmy-notes.txt');
+      ensureWorkDir();
+      const lines = read(join(d2, '.peanut-gallery/.gitignore'), 'utf8').split('\n');
+      expect(lines).toContain('compare/');
+      expect(lines).toContain('my-notes.txt');
+      expect(lines.filter((l) => l === 'worktrees/')).toHaveLength(1);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+});

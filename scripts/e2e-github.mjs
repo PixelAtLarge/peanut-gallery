@@ -65,7 +65,7 @@ if (!existsSync('tokens.css')) {
   writeFileSync('styles.css', css.join('\n'));
   writeFileSync('index.html', readFileSync('index.html', 'utf8').replace(/(<link[^>]*styles\.css[^>]*>)/, '<link rel="stylesheet" href="tokens.css">\n  $1'));
   writeFileSync('CLAUDE.md', '# Checkout prototype\n\n- Colours, radii and spacing come from the CSS variables in `tokens.css`. Never hard-code hex values.\n- Buttons use the `.btn` class; primary actions add a modifier class rather than inline styles.\n');
-  sh('git', ['add', '-A']);
+  sh('git', ['add', 'tokens.css', 'styles.css', 'index.html', 'CLAUDE.md']);
   sh('git', ['-c', 'user.name=peanut-gallery-e2e', '-c', 'user.email=e2e@peanut-gallery.invalid', 'commit', '-q', '-m', 'Move design tokens to tokens.css; add CLAUDE.md']);
   sh('git', ['push', '-q', 'origin', 'HEAD:main']);
 }
@@ -167,6 +167,8 @@ check('before/after screenshots + compare page were generated', run?.screenshots
 check('a pull request was opened', run?.prUrl?.includes('/pull/'), run?.prUrl);
 const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${run.prNumber}/files`)).map((f) => f.filename);
 check('PR contains the code change and the comparison assets', prFiles.some((f) => f === 'index.html' || f === 'styles.css') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
+const compareDirs = [...new Set(prFiles.filter((f) => f.startsWith('.peanut-gallery/compare/')).map((f) => f.split('/')[2]))];
+check('PR carries only its own comparison files', compareDirs.length === 1 && compareDirs[0] === run.proposalId, compareDirs.join(', '));
 const prBody = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${run.prNumber}`)).body ?? '';
 check(
   'PR reports the design-system check and guidance',

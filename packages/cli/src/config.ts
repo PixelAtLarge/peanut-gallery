@@ -112,11 +112,17 @@ export function workPath(...parts: string[]): string {
   return p;
 }
 
+export const WORK_IGNORES = ['worktrees/', 'compare/', 'feedback.json', 'proposals.json', 'runs.json'];
+
 export function ensureWorkDir(): string {
   const p = workPath();
   mkdirSync(p, { recursive: true });
+  // Everything here is local working state. PR branches add their own compare files explicitly
+  // (git add -f), so ignoring compare/ keeps a plain `git add -A` from committing every local run.
   const gi = join(p, '.gitignore');
-  if (!existsSync(gi)) writeFileSync(gi, 'worktrees/\nfeedback.json\nproposals.json\nruns.json\n');
+  const have = existsSync(gi) ? readFileSync(gi, 'utf8') : '';
+  const missing = WORK_IGNORES.filter((e) => !have.split(/\r?\n/).includes(e));
+  if (missing.length) writeFileSync(gi, (have && !have.endsWith('\n') ? have + '\n' : have) + missing.join('\n') + '\n');
   return p;
 }
 
