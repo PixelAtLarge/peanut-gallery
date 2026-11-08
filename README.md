@@ -40,6 +40,10 @@ Three packages, one CLI:
 
 ---
 
+## Try the demo
+
+`npm run demo:build` builds a static demo into `demo/dist`: a sample checkout with the real widget, a live preview of the GitHub issue your notes create, and the before/after, vote and options steps from a recorded real-Claude run. Deploy that folder to any static host (GitHub Pages, Netlify, Vercel). Nothing in the demo calls Claude or GitHub.
+
 ## 1. Add the widget to the prototype
 
 **Script tag (any page):**

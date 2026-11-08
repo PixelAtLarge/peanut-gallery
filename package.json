@@ -10,7 +10,8 @@
     "build": "npm run build -w packages/core && npm run build -w packages/widget -w packages/relay && npm run build -w packages/cli",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run build -w packages/core && npm run typecheck --workspaces --if-present",
-    "example": "npx serve examples/vanilla-prototype -l 5173"
+    "example": "npx serve examples/vanilla-prototype -l 5173",
+    "demo:build": "npm run build && node demo/build.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

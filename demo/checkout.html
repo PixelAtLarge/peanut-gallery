@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Checkout prototype</title>
+  <link rel="stylesheet" href="checkout.css">
+</head>
+<body>
+  <header class="top">
+    <a class="logo" href="#">acme</a>
+    <nav><a href="#">Shop</a><a href="#">Orders</a><a href="#" aria-current="page">Checkout</a></nav>
+  </header>
+
+  <main class="checkout">
+    <section class="form" aria-labelledby="h-ship">
+      <h1 id="h-ship">Checkout</h1>
+      <h2>Shipping</h2>
+      <div class="grid">
+        <label>First name <input data-testid="first-name" placeholder="Ada"></label>
+        <label>Last name <input data-testid="last-name" placeholder="Lovelace"></label>
+        <label class="wide">Address <input data-testid="address" placeholder="12 Analytical Engine Way"></label>
+        <label>City <input placeholder="London"></label>
+        <label>Postcode <input placeholder="N1 9GU"></label>
+      </div>
+      <h2>Payment</h2>
+      <div class="grid">
+        <label class="wide">Card number <input data-testid="card" placeholder="4242 4242 4242 4242"></label>
+        <label>Expiry <input placeholder="MM / YY"></label>
+        <label>CVC <input placeholder="123"></label>
+      </div>
+      <p class="fine">By continuing you agree to our terms. Shipping is calculated at the next step.</p>
+      <div class="actions">
+        <button class="btn" data-testid="back">Back</button>
+        <button class="btn" data-testid="pay">Pay now</button>
+      </div>
+    </section>
+
+    <aside class="summary" aria-labelledby="h-sum">
+      <h2 id="h-sum">Order summary</h2>
+      <ul class="items">
+        <li><span>Difference Engine (desk model)</span><span>$129.00</span></li>
+        <li><span>Punch cards ×100</span><span>$12.00</span></li>
+        <li><span>Brass oil can</span><span>$9.50</span></li>
+      </ul>
+      <div class="total"><span>Total</span><strong data-testid="total">$150.50</strong></div>
+      <p class="promo"><a href="#">Have a promo code?</a></p>
+    </aside>
+  </main>
+  <script src="checkout.js"></script>
+</body>
+</html>

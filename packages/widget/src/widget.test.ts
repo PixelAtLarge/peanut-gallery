@@ -57,6 +57,86 @@ describe('widget', () => {
     expect(url.searchParams.get('body')).toContain('Title should say Payment');
   });
 
+  it('hands the session to onSubmit, then clears pins, count and panel', async () => {
+    const received: unknown[] = [];
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', onSubmit: (s) => void received.push(s) }).mount();
+    const sr = shadow(w);
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    const h1 = document.querySelector('h1')!;
+    h1.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true }));
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+    (sr.querySelector('textarea') as HTMLTextAreaElement).value = 'Say Payment';
+    (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();
+    const btn = sr.querySelector('.pg-panel .pg-primary') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Submit');
+    const open = vi.spyOn(window, 'open');
+    btn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(open).not.toHaveBeenCalled();
+    expect(received).toHaveLength(1);
+    expect((received[0] as { annotations: { text: string }[] }).annotations[0].text).toBe('Say Payment');
+    expect(w.getAnnotations()).toHaveLength(0);
+    expect(sr.querySelectorAll('.pg-pin')).toHaveLength(0);
+    expect(sr.querySelector('[data-role=count]')!.textContent).toBe('0');
+    expect(sr.querySelector('.pg-panel')).toBeNull();
+  });
+
+  it('keeps the notes when onSubmit throws or asks to keep them', async () => {
+    const add = (sr: ShadowRoot) => {
+      (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+      const h1 = document.querySelector('h1')!;
+      h1.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true }));
+      h1.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+      (sr.querySelector('textarea') as HTMLTextAreaElement).value = 'x';
+      (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+      (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();
+      (sr.querySelector('.pg-panel .pg-primary') as HTMLButtonElement).click();
+    };
+    const w1 = new PeanutGalleryWidget({ repo: 'owner/a', author: 'anna', onSubmit: () => { throw new Error('offline'); } }).mount();
+    add(shadow(w1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(w1.getAnnotations()).toHaveLength(1);
+    expect(shadow(w1).querySelector('.pg-toast')!.textContent).toContain('offline');
+    w1.destroy();
+    const w2 = new PeanutGalleryWidget({ repo: 'owner/b', author: 'anna', onSubmit: async () => ({ keep: true }) }).mount();
+    add(shadow(w2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(w2.getAnnotations()).toHaveLength(1);
+  });
+
+  it('still works when localStorage and prompt are blocked (sandboxed frames)', () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    const pr = vi.spyOn(window, 'prompt').mockImplementation(() => { throw new Error('blocked'); });
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', onSubmit: () => ({ keep: true }) }).mount();
+    const sr = shadow(w);
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    const h1 = document.querySelector('h1')!;
+    h1.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true }));
+    h1.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+    (sr.querySelector('textarea') as HTMLTextAreaElement).value = 'works anyway';
+    (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    expect(w.getAnnotations()).toHaveLength(1);
+    (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();
+    expect(() => (sr.querySelector('.pg-panel .pg-primary') as HTMLButtonElement).click()).not.toThrow();
+    get.mockRestore(); set.mockRestore(); pr.mockRestore();
+  });
+
+  it('starts from a provided session, with pins on their elements', () => {
+    const w = new PeanutGalleryWidget({
+      repo: 'owner/repo',
+      author: 'anna',
+      session: {
+        id: 'rs_demo', prototypeUrl: 'http://x', createdAt: '2026-11-07T00:00:00Z',
+        annotations: [{ id: 'an_1', text: 'Make this primary', kind: 'visual', pageUrl: location.origin + location.pathname + location.search, anchor: { selector: 'button[data-testid="pay"]', textFingerprint: 'Pay now', tag: 'button', rect: { x: 0, y: 0, width: 10, height: 10 }, offset: { x: 0.5, y: 0.5 } }, createdAt: '2026-11-07T00:00:00Z' }],
+      } as never,
+    }).mount();
+    expect(w.getAnnotations()[0].text).toBe('Make this primary');
+    expect(shadow(w).querySelectorAll('.pg-pin')).toHaveLength(1);
+    expect(shadow(w).querySelector('[data-role=count]')!.textContent).toBe('1');
+  });
+
   it('respects activation=query', () => {
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', activation: 'query' }).mount();
     expect(document.querySelector('peanut-gallery')).toBeNull();

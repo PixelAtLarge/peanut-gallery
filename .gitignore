@@ -3,3 +3,4 @@ dist
 .peanut-gallery/
 *.log
 .DS_Store
+demo/dist/

@@ -1,0 +1,62 @@
+{
+  "id": "rs_14cfa637",
+  "prototypeUrl": "http://127.0.0.1:4390",
+  "annotations": [
+    {
+      "id": "an_b5514d62",
+      "text": "Make this the primary CTA and show the total on it.",
+      "kind": "visual",
+      "anchor": {
+        "selector": "button[data-testid=\"pay\"]",
+        "textFingerprint": "Pay now",
+        "tag": "button",
+        "rect": {
+          "x": 647.421875,
+          "y": 644,
+          "width": 87.578125,
+          "height": 37
+        },
+        "offset": {
+          "x": 0.4975914362176628,
+          "y": 0.4864864864864865
+        },
+        "context": "Checkout"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "createdAt": "2026-11-07T22:45:54.135Z",
+      "author": "Ada (reviewer)"
+    },
+    {
+      "id": "an_09a32f53",
+      "text": "Total feels buried, make it bigger.",
+      "kind": "layout",
+      "anchor": {
+        "selector": "strong[data-testid=\"total\"]",
+        "textFingerprint": "$150.50",
+        "tag": "strong",
+        "rect": {
+          "x": 1042.859375,
+          "y": 297,
+          "width": 64.140625,
+          "height": 18
+        },
+        "offset": {
+          "x": 0.48550548112058467,
+          "y": 0.5
+        },
+        "context": "Order summary"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "createdAt": "2026-11-07T22:45:54.285Z",
+      "author": "Ada (reviewer)"
+    }
+  ],
+  "createdAt": "2026-11-07T22:45:53.881Z",
+  "author": "Ada (reviewer)"
+}

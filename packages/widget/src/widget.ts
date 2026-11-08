@@ -47,7 +47,33 @@ export interface PeanutGalleryConfig {
    * without it the widget uses those fonts if the page already has them, else the system UI font.
    */
   loadFonts?: boolean;
+  /**
+   * Handle submission yourself instead of GitHub (e.g. send to your own backend, or a demo).
+   * Overrides `mode`. Resolve to clear the notes; return `{ issueUrl }` to link to the result,
+   * or `{ keep: true }` to leave the notes on the page. Throw to show an error and keep them.
+   */
+  onSubmit?: (session: ReviewSession) => void | Promise<void | { issueUrl?: string; keep?: boolean }>;
+  /** Start from these notes instead of the ones saved in this browser (e.g. a demo or a test). */
+  session?: ReviewSession;
 }
+
+/** localStorage that never throws: sandboxed frames and strict privacy modes can block it. */
+const store = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* notes still work for this page view; they just won't survive a reload */
+    }
+  },
+};
 
 const DEFAULT_KINDS: AnnotationKind[] = ['bug', 'copy', 'layout', 'visual', 'flow', 'question', 'praise'];
 
@@ -120,6 +146,7 @@ export class PeanutGalleryWidget {
     window.addEventListener('scroll', this.schedulePins, true);
     window.addEventListener('resize', this.schedulePins);
     this.renderPins();
+    this.updateCount();
     return this;
   }
 
@@ -141,8 +168,9 @@ export class PeanutGalleryWidget {
   // ---------- state ----------
 
   private loadSession(): ReviewSession {
+    if (this.cfg.session && Array.isArray(this.cfg.session.annotations)) return structuredClone(this.cfg.session);
     try {
-      const raw = localStorage.getItem(this.storageKey);
+      const raw = store.get(this.storageKey);
       if (raw) {
         const s = JSON.parse(raw) as ReviewSession;
         if (Array.isArray(s.annotations)) return s;
@@ -159,13 +187,13 @@ export class PeanutGalleryWidget {
       prototypeUrl: this.cfg.prototypeUrl,
       annotations: [],
       createdAt: new Date().toISOString(),
-      author: this.cfg.author ?? localStorage.getItem('peanut-gallery:author') ?? undefined,
+      author: this.cfg.author ?? store.get('peanut-gallery:author') ?? undefined,
       userAgent: navigator.userAgent,
     };
   }
 
   private save() {
-    localStorage.setItem(this.storageKey, JSON.stringify(this.session));
+    store.set(this.storageKey, JSON.stringify(this.session));
     this.updateCount();
     this.renderPins();
     if (this.panel) this.renderPanel();
@@ -396,14 +424,15 @@ export class PeanutGalleryWidget {
         this.save();
       }
     };
-    const submit = el('button', 'pg-btn pg-primary', this.effectiveMode() === 'relay' ? 'Submit' : 'Submit to GitHub') as HTMLButtonElement;
+    const submit = el('button', 'pg-btn pg-primary', this.effectiveMode() === 'issue-url' ? 'Submit to GitHub' : 'Submit') as HTMLButtonElement;
     submit.disabled = !this.session.annotations.length;
     submit.onclick = () => this.submit(submit);
     row.append(clear, el('span', 'pg-spacer'), submit);
     p.append(row);
   }
 
-  private effectiveMode(): 'issue-url' | 'relay' {
+  private effectiveMode(): 'issue-url' | 'relay' | 'callback' {
+    if (this.cfg.onSubmit) return 'callback';
     if (this.cfg.mode === 'relay') return 'relay';
     if (this.cfg.mode === 'issue-url') return 'issue-url';
     return this.cfg.relayUrl ? 'relay' : 'issue-url';
@@ -411,10 +440,15 @@ export class PeanutGalleryWidget {
 
   private ensureAuthor() {
     if (this.session.author) return;
-    const name = prompt('Your name (shown on the feedback):')?.trim();
+    let name: string | undefined;
+    try {
+      name = prompt('Your name (shown on the feedback):')?.trim();
+    } catch {
+      /* prompt is blocked in some sandboxed frames; the notes go in unsigned */
+    }
     if (name) {
       this.session.author = name;
-      localStorage.setItem('peanut-gallery:author', name);
+      store.set('peanut-gallery:author', name);
       this.session.annotations.forEach((a) => (a.author ??= name));
     }
   }
@@ -422,6 +456,21 @@ export class PeanutGalleryWidget {
   private async submit(btn: HTMLButtonElement) {
     this.ensureAuthor();
     const session: ReviewSession = { ...this.session, createdAt: new Date().toISOString() };
+    if (this.effectiveMode() === 'callback') {
+      btn.disabled = true;
+      btn.textContent = 'Submitting…';
+      try {
+        const out = (await this.cfg.onSubmit!(session)) || {};
+        if (!out.keep) this.resetAfterSubmit();
+        this.toast(out.issueUrl ? `Submitted: ${out.issueUrl}` : 'Submitted. Thank you!');
+      } catch (err) {
+        this.toast(`Could not submit: ${(err as Error).message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Submit';
+      }
+      return;
+    }
     if (this.effectiveMode() === 'issue-url') {
       const url = newIssueUrl(this.cfg.repo, session, this.cfg.labels);
       const w = window.open(url, '_blank', 'noopener');
@@ -442,8 +491,7 @@ export class PeanutGalleryWidget {
       });
       if (!res.ok) throw new Error(`Relay responded ${res.status}`);
       const data = (await res.json()) as { issueUrl?: string };
-      this.session = this.freshSession();
-      this.save();
+      this.resetAfterSubmit();
       this.toast(data.issueUrl ? `Submitted: ${data.issueUrl}` : 'Submitted. Thank you!');
       if (data.issueUrl) window.open(data.issueUrl, '_blank', 'noopener');
     } catch (err) {
@@ -451,6 +499,18 @@ export class PeanutGalleryWidget {
       btn.disabled = false;
       btn.textContent = 'Submit';
     }
+  }
+
+  /** Clear the submitted notes and redraw: pins, count and the panel. */
+  private resetAfterSubmit() {
+    this.session = this.freshSession();
+    this.save();
+    if (this.panel) {
+      this.panel.remove();
+      this.panel = null;
+    }
+    this.renderPins();
+    this.updateCount();
   }
 
   private toast(msg: string) {
