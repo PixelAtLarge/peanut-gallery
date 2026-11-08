@@ -4,7 +4,7 @@
 
 **[Try the live demo →](https://pixelatlarge.github.io/peanut-gallery/)**
 
-https://github.com/user-attachments/assets/cc512270-965d-40d0-be51-55c9c33319a4
+https://github.com/user-attachments/assets/61e9b2c7-199f-4400-996c-d2a1b8632c4f
 
 Annotate a hosted prototype → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
