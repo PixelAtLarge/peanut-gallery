@@ -30,6 +30,13 @@ done
 echo "  OK."
 
 echo
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  echo "  Warning: not running in a terminal, so npm can't ask you to approve publishing (two-factor)."
+  echo "  Run this script directly in Terminal."
+fi
+echo "▸ Publishing. If your npm account uses two-factor, npm will ask you to approve each package"
+echo "  in your browser (press return to open it). Tick the option to skip it for the next few minutes if offered."
+echo
 for p in core widget relay cli; do
   name=$(node -p "require('./packages/${p}/package.json').name")
   version=$(node -p "require('./packages/${p}/package.json').version")
