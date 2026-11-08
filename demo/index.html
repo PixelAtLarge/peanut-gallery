@@ -5,23 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Peanut Gallery demo</title>
 <meta name="description" content="Comment on a prototype, get a pull request back. Try the Peanut Gallery widget on a sample checkout and follow one round of feedback to a merged change.">
+<meta property="og:title" content="Peanut Gallery: where feedback actually ships">
+<meta property="og:description" content="Reviewers pin notes to a live prototype. Claude turns them into pull requests with before and after screenshots, and reviewers vote.">
+<meta property="og:image" content="https://pixelatlarge.github.io/peanut-gallery/assets/og.png">
+<meta property="og:url" content="https://pixelatlarge.github.io/peanut-gallery/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Young+Serif&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Young+Serif&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  /* Layout: a guided page in five numbered steps, each a label column beside its content; one column on phones. */
+  /* Layout: the explainer video's language. A centred title card, then each step as a caption
+     (chip, serif headline, muted copy) beside its visual in a white window or a carbon code card. */
   :root {
-    --bg: #F6F3E4;          /* Linen */
+    --bg: #CDE2F2;          /* Sea Glass: the video's ground */
     --surface: #FFFFFF;
     --ink: #22272B;         /* Carbon */
-    --muted: #5B6670;
-    --line: #E2DDC8;
-    --forest: #1E4D36;      /* Conifer */
+    --muted: #5A6268;
+    --line: #DEDCCB;
+    --forest: #1E4D36;      /* Conifer: headings, chips */
+    --forest-2: #325D46;    /* Conifer 700: widget buttons */
     --primary: #0F7B52;     /* Emerald */
     --accent: #EAC26C;      /* Sunnyside */
-    --sky: #CDE2F2;         /* Sea Glass */
-    --pass: #CFE1B4;        /* Pistachio */
     --navy: #152A4A;        /* Prep */
+    --chrome: #EDEBE3;      /* window bars */
+    --dot: #AEC1CF;         /* Sea Glass 300 */
+    --tint: #EFF8FF;        /* Sea Glass 50 */
+    --ok-bg: #D4F4E2; --ok: #0F7B52;
+    --warn-bg: #FEE9BD; --warn: #654F1C;
+    --code: #22272B; --code-bar: #2C3338; --code-ink: #F1EFE2; --code-muted: #A5ADB2;
+    --code-add: #9CC98A; --code-del: #E7A79B; --code-file: #EAC26C;
+    --shadow-win: 0 30px 70px -28px rgba(21, 42, 74, .38), 0 2px 0 rgba(0, 0, 0, .03);
+    --shadow-card: 0 6px 18px rgba(21, 42, 74, .08);
+    --shadow-code: 0 20px 50px -18px rgba(21, 42, 74, .45);
     --display: "Young Serif", Georgia, "Times New Roman", serif;
     --body: Manrope, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -29,319 +45,382 @@
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--body); }
-  a { color: var(--primary); text-underline-offset: 2px; }
-  a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
+  a { color: var(--forest); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
   img { max-width: 100%; display: block; }
-  code, pre { font-family: var(--mono); font-size: 0.86em; }
+  code, pre { font-family: var(--mono); }
   h1, h2, h3 { text-wrap: balance; }
+  p code, li code { font-size: .86em; background: var(--tint); padding: 1px 6px; border-radius: 6px; }
 
-  .bar { background: var(--forest); color: #fff; }
-  .bar .in { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .mark { font-family: var(--display); font-size: 21px; letter-spacing: 0.01em; }
-  .tag { color: var(--pass); font-size: 14px; }
-  .bar nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; font-weight: 600; }
-  .bar nav a { color: #fff; text-decoration: none; }
-  .bar nav a:hover { text-decoration: underline; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
 
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
-  .intro { padding: 44px 0 18px; display: grid; gap: 14px; }
-  .intro h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 4.6vw, 48px); line-height: 1.12; margin: 0; color: var(--forest); max-width: 18ch; }
-  .intro p { margin: 0; max-width: 62ch; font-size: 18px; color: var(--muted); }
-  .steps { list-style: none; padding: 0; margin: 18px 0 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; counter-reset: s; }
-  .steps li { counter-increment: s; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14px; font-weight: 600; display: flex; gap: 10px; align-items: center; }
-  .steps li::before { content: counter(s); flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--forest); color: #fff; font-size: 12px; }
-  .steps a { color: inherit; text-decoration: none; }
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 18px; padding: 18px 0; flex-wrap: wrap; }
+  .brandmini { display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); font-size: 21px; color: var(--forest); text-decoration: none; }
+  .brandmini img { width: 36px; height: auto; }
+  .top nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; font-weight: 600; }
+  .top nav a { text-decoration: none; }
+  .top nav a:hover { text-decoration: underline; }
 
-  section.step { display: grid; grid-template-columns: 240px 1fr; gap: 28px; padding: 40px 0; border-top: 1px solid var(--line); }
-  section.step:first-of-type { border-top: 0; }
-  .label .n { font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--primary); }
-  .label h2 { font-family: var(--display); font-weight: 400; font-size: 26px; line-height: 1.2; margin: 8px 0 10px; color: var(--forest); }
-  .label p { margin: 0 0 10px; color: var(--muted); font-size: 15px; max-width: 34ch; }
-  .content { min-width: 0; display: grid; gap: 16px; align-content: start; }
+  /* title card */
+  .hero { text-align: center; padding: 28px 0 8px; display: grid; justify-items: center; gap: 10px; }
+  .hero .mark { width: 120px; height: auto; margin-bottom: 4px; }
+  .hero h1 { font-family: var(--display); font-weight: 400; color: var(--forest); font-size: clamp(46px, 8vw, 88px); line-height: 1; margin: 0; letter-spacing: -.01em; }
+  .hero .tagline { font-size: clamp(18px, 2.4vw, 24px); color: var(--muted); font-weight: 500; margin: 0; }
+  .hero .flow { font: 14px var(--mono); color: var(--muted); margin: 6px 0 0; }
+  .hero .lead { max-width: 60ch; margin: 18px 0 0; font-size: 17px; color: var(--ink); }
+  .stepnav { list-style: none; padding: 0; margin: 22px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .stepnav a { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px 6px 6px; font-size: 14px; font-weight: 600; color: var(--forest); text-decoration: none; box-shadow: var(--shadow-card); }
+  .stepnav a:hover { border-color: var(--forest); }
 
-  .frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 0 rgba(0,0,0,.03), 0 12px 32px -18px rgba(21,42,74,.35); }
-  .frame .chrome { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #EFEBDA; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
-  .frame .chrome i { width: 10px; height: 10px; border-radius: 50%; background: #D5CFB8; display: inline-block; }
-  .frame .chrome span { margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .frame iframe { display: block; width: 100%; height: clamp(560px, 78vh, 780px); border: 0; background: #f7f7f9; }
+  .n { font: 700 13px/1 var(--mono); background: var(--forest); color: var(--bg); border-radius: 7px; padding: 5px 8px; flex: none; }
 
-  .hint { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 12px 14px; font-size: 15px; }
-  .hint ol { margin: 6px 0 0; padding-left: 20px; }
-  .hint li { margin: 2px 0; }
-  .kbd { font: 600 12px var(--mono); background: var(--forest); color: #fff; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+  /* steps: caption beside visual */
+  section.step { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; padding: 56px 0; }
+  .cap { align-self: start; position: sticky; top: 24px; }
+  .cap .kicker { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--forest); font-size: 15px; }
+  .cap h2 { font-family: var(--display); font-weight: 400; font-size: 34px; line-height: 1.12; letter-spacing: -.005em; color: var(--forest); margin: 14px 0 12px; }
+  .cap p { margin: 0 0 10px; color: var(--muted); font-size: 16px; max-width: 36ch; }
+  .content { min-width: 0; display: grid; gap: 18px; align-content: start; }
 
-  .recorded { background: var(--sky); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--navy); }
-  .recorded strong { font-weight: 700; }
-  .notice { background: #FFF6DE; border: 1px solid var(--accent); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+  /* white window (browser frame) */
+  .win { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-win); margin: 0; }
+  .win .bar { display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 14px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+  .win .bar i { width: 11px; height: 11px; border-radius: 50%; background: #DBD8CA; display: block; flex: none; }
+  .win .bar .url { margin-left: 12px; flex: 1; max-width: 460px; height: 24px; border-radius: 7px; background: var(--surface); border: 1px solid var(--line); font: 12px/22px var(--mono); color: var(--muted); padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .win .bar .url b { color: var(--ink); font-weight: 500; }
+  .win iframe { display: block; width: 100%; height: clamp(560px, 78vh, 780px); border: 0; background: #f7f7f9; }
+
+  /* cards and badges */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow-card); display: grid; gap: 8px; align-content: start; }
+  .card h3 { margin: 0; font-size: 16px; line-height: 1.35; font-weight: 700; }
+  .card p { margin: 0; font-size: 15px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 650; background: var(--chrome); color: var(--muted); }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .badge.dark { background: var(--navy); color: #fff; font: 700 11px/1 var(--mono); letter-spacing: .08em; padding: 6px 9px; white-space: nowrap; flex: none; }
+
+  .try { display: grid; gap: 10px; }
+  .try ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  .key { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 10px; background: var(--forest-2); color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .key.go { background: var(--primary); }
+  .key.on { background: var(--accent); color: var(--ink); }
+
+  .recorded { display: flex; gap: 12px; align-items: flex-start; }
+  .recorded p { color: var(--ink); }
+  .notice { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 12px 16px; font-size: 15px; margin: 0; }
   .notice[hidden] { display: none; }
 
-  /* GitHub-style issue preview */
-  .issue { background: var(--surface); border: 1px solid #D0D7DE; border-radius: 10px; overflow: hidden; }
-  .issue header { padding: 14px 16px 10px; border-bottom: 1px solid #D0D7DE; display: grid; gap: 8px; }
-  .issue h3 { margin: 0; font: 600 19px/1.3 var(--body); }
+  /* GitHub issue, as drawn in the video */
+  .issue header { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .issue h3 { font-size: 19px; }
   .issue .num { color: var(--muted); font-weight: 400; }
-  .labels { display: flex; flex-wrap: wrap; gap: 6px; }
-  .labels span { font: 600 12px/1 var(--body); padding: 5px 9px; border-radius: 999px; background: var(--pass); color: var(--forest); }
-  .md { padding: 4px 16px 14px; font-size: 14px; overflow-wrap: anywhere; }
-  .md h4 { font-size: 15px; margin: 16px 0 6px; }
+  .issue .by { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .open { display: inline-flex; align-items: center; gap: 6px; background: var(--primary); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; }
+  .open::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 2px solid #fff; }
+  .lbl { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; }
+  .lbl.root { background: var(--forest); color: #fff; }
+  .lbl.fb { background: var(--accent); color: var(--ink); }
+  .md { font-size: 14px; overflow-wrap: anywhere; }
+  .md h4 { font-size: 15px; margin: 14px 0 6px; }
   .md ul { margin: 0; padding-left: 20px; }
-  .md p { margin: 8px 0; }
-  .md code { background: #F2F1EA; padding: 1px 5px; border-radius: 4px; }
-  .md details { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .md p { margin: 8px 0; color: var(--ink); }
+  .md code { font-size: .9em; background: var(--tint); padding: 1px 5px; border-radius: 5px; }
+  .md details { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
   .md summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-  .md pre { overflow-x: auto; background: #F2F1EA; padding: 10px; border-radius: 6px; max-height: 260px; }
+  .md pre { overflow-x: auto; background: var(--tint); padding: 10px; border-radius: 8px; max-height: 260px; font-size: 12px; }
   .caption { font-size: 14px; color: var(--muted); margin: 0; }
 
-  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
-  .card h3 { margin: 0; font-size: 16px; line-height: 1.35; }
-  .card p { margin: 0; font-size: 14px; color: var(--muted); }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px; }
-  .meta span { font: 600 12px/1 var(--mono); padding: 5px 8px; border-radius: 6px; background: #F2F1EA; color: var(--ink); }
-  .meta span.ok { background: var(--pass); color: var(--forest); }
-  .opt { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: var(--forest); color: #fff; font: 700 13px var(--body); }
+  /* carbon code cards and terminal */
+  .term { background: var(--code); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-code); }
+  .term .tbar { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: var(--code-bar); }
+  .term .tbar i { width: 11px; height: 11px; border-radius: 50%; background: #4E5357; display: block; }
+  .term .tbar span { margin-left: 10px; font: 12px var(--mono); color: var(--code-muted); }
+  .term pre { margin: 0; padding: 16px 20px; color: var(--code-ink); font-size: 13px; line-height: 1.65; overflow-x: auto; }
+  .t-add { color: var(--code-add); } .t-del { color: var(--code-del); } .t-file { color: var(--code-file); } .t-dim { color: var(--code-muted); }
 
-  .diff { background: #0F1B14; color: #DCE7D6; border-radius: 12px; padding: 14px 16px; overflow-x: auto; font: 13px/1.6 var(--mono); }
-  .diff .add { color: #9CC98A; }
-  .diff .del { color: #E7A79B; }
-  .diff .file { color: var(--accent); }
+  .code { background: var(--code); color: var(--code-ink); border-radius: 14px; padding: 14px 16px 16px 20px; box-shadow: var(--shadow-code); display: grid; gap: 6px; min-width: 0; }
+  .code .lab { display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 700 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--code-muted); }
+  .code code { display: block; font-size: 13px; line-height: 1.6; overflow-x: auto; white-space: pre; padding-bottom: 2px; }
+  .copy { font: 600 12px var(--body); letter-spacing: 0; text-transform: none; border-radius: 999px; padding: 5px 12px; border: 1px solid rgba(255, 255, 255, .28); background: transparent; color: #fff; cursor: pointer; }
+  .copy:hover { border-color: var(--accent); }
 
-  .compare { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
-  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-  .tabs button, .vote button, .copy { font: 600 14px var(--body); border-radius: 999px; padding: 8px 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
-  .tabs button[aria-pressed="true"] { background: var(--forest); border-color: var(--forest); color: #fff; }
-  .slider { position: relative; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); background: #f7f7f9; touch-action: pan-y; user-select: none; }
+  /* compare */
+  .compare { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 12px; box-shadow: var(--shadow-win); }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pills button, .vote button { font: 600 14px var(--body); border-radius: 999px; padding: 8px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--forest); cursor: pointer; }
+  .pills button:hover, .vote button:hover { border-color: var(--forest); }
+  .pills button[aria-pressed="true"] { background: var(--forest); border-color: var(--forest); color: #fff; }
+  .vote button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .slider { position: relative; overflow: hidden; border-radius: 12px; border: 1px solid var(--line); background: #f7f7f9; touch-action: pan-y; user-select: none; cursor: ew-resize; }
   .slider img { width: 100%; height: auto; }
   .slider .after { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--cut, 50%)); }
   .slider .handle { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); width: 3px; margin-left: -1.5px; background: var(--accent); pointer-events: none; }
-  .slider .handle::after { content: "⇆"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--navy); display: grid; place-items: center; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
-  .slider .tagl, .slider .tagr { position: absolute; top: 10px; font: 700 11px/1 var(--mono); letter-spacing: .08em; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,.92); color: var(--muted); }
-  .slider .tagl { left: 10px; } .slider .tagr { right: 10px; color: var(--primary); }
-  .range { width: 100%; accent-color: var(--primary); }
+  .slider .handle::after { content: "⇆"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--ink); display: grid; place-items: center; font-weight: 700; box-shadow: 0 4px 12px rgba(21, 42, 74, .3); }
+  .slider .tagl, .slider .tagr { position: absolute; top: 10px; font: 700 11px/1 var(--mono); letter-spacing: .08em; padding: 6px 9px; border-radius: 7px; background: rgba(255, 255, 255, .94); }
+  .slider .tagl { left: 10px; color: var(--muted); } .slider .tagr { right: 10px; color: var(--primary); }
+  .range { width: 100%; accent-color: var(--forest); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-
   .vote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .vote button:hover, .tabs button:hover, .copy:hover { border-color: var(--forest); }
-  .vote button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
-  .reply { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14px; display: grid; gap: 6px; }
   .reply[hidden] { display: none; }
   .reply .who { font-weight: 700; }
-  .reply .outcome { color: var(--forest); font-weight: 600; }
+  .reply .outcome { color: var(--forest); font-weight: 600; font-size: 15px; }
+  .reply q { color: var(--ink); }
 
-  .cmd { display: flex; align-items: center; gap: 10px; background: var(--navy); color: #fff; border-radius: 10px; padding: 10px 10px 10px 14px; font: 13px var(--mono); overflow-x: auto; }
-  .cmd code { white-space: nowrap; font-size: 13px; }
-  .cmd .copy { margin-left: auto; flex: none; background: transparent; color: #fff; border-color: rgba(255,255,255,.35); font-size: 13px; padding: 6px 12px; }
-  .install { display: grid; gap: 10px; }
-  .install h3 { margin: 6px 0 0; font-size: 15px; }
+  .opt { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--forest); color: var(--bg); font: 700 14px var(--mono); }
 
-  footer { border-top: 1px solid var(--line); margin-top: 20px; padding: 24px 0 40px; color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  /* closing card, as the video's last frame */
+  .finale { text-align: center; padding: 64px 0 40px; display: grid; justify-items: center; gap: 10px; }
+  .finale .mark { width: 88px; height: auto; }
+  .finale h2 { font-family: var(--display); font-weight: 400; font-size: clamp(36px, 5.4vw, 60px); line-height: 1.05; color: var(--forest); margin: 4px 0 0; }
+  .finale .tagline { margin: 0; font-size: 20px; color: var(--muted); font-weight: 500; }
+  .finale .codes { width: 100%; max-width: 920px; display: grid; gap: 16px; margin-top: 22px; text-align: left; }
+  .finale .foot { margin: 22px 0 0; font-size: 15px; color: var(--muted); }
+  .finale .foot a { color: var(--ink); font-weight: 700; text-decoration: none; }
+  .finale .foot a:hover { text-decoration: underline; }
+
+  footer { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 22px 0 40px; border-top: 1px solid rgba(21, 42, 74, .12); color: var(--muted); font-size: 14px; }
+  footer .brandmini { font-size: 18px; }
+  footer .brandmini img { width: 28px; }
+  footer nav { margin-left: auto; display: flex; gap: 16px; }
 
   @media (max-width: 900px) {
-    section.step { grid-template-columns: 1fr; gap: 16px; padding: 30px 0; }
-    .label p { max-width: 60ch; }
-    .steps { grid-template-columns: 1fr 1fr; }
+    section.step { grid-template-columns: 1fr; gap: 18px; padding: 40px 0; }
+    .cap { position: static; }
+    .cap p { max-width: 60ch; }
   }
   @media (max-width: 560px) {
-    .steps { grid-template-columns: 1fr; }
+    .wrap { padding: 0 16px; }
     .cards { grid-template-columns: 1fr; }
-    .intro { padding-top: 30px; }
-    .intro p { font-size: 16px; }
-    .bar nav { margin-left: 0; width: 100%; }
-    .frame iframe { height: 620px; }
+    .hero .mark { width: 92px; }
+    .hero .lead { font-size: 16px; }
+    .top { flex-wrap: nowrap; gap: 10px; }
+    .top .brandmini { font-size: 18px; gap: 8px; }
+    .top .brandmini img { width: 30px; }
+    .top nav { gap: 12px; font-size: 13px; }
+    .hero .flow { font-size: 12px; }
+    .win iframe { height: 620px; }
+    .cap h2 { font-size: 28px; }
   }
-  @media (prefers-reduced-motion: no-preference) {
-    html { scroll-behavior: smooth; }
-  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 </style>
 </head>
 <body>
-<div class="bar"><div class="in">
-  <span class="mark">Peanut Gallery</span>
-  <span class="tag">Where feedback actually ships.</span>
-  <nav aria-label="Project links">
-    <a href="#install">Install</a>
-    <a href="https://github.com/PixelAtLarge/peanut-gallery">GitHub</a>
-  </nav>
-</div></div>
+<div class="wrap">
+  <header class="top">
+    <a class="brandmini" href="#top" aria-label="Peanut Gallery home"><img src="assets/peanut-mark.png" alt="" width="272" height="224"><span>Peanut Gallery</span></a>
+    <nav aria-label="Project links">
+      <a href="#install">Install</a>
+      <a href="https://www.npmjs.com/package/peanut-gallery">npm</a>
+      <a href="https://github.com/PixelAtLarge/peanut-gallery">GitHub</a>
+    </nav>
+  </header>
 
-<main class="wrap">
-  <div class="intro">
-    <h1>Comment on a prototype. Get a pull request back.</h1>
-    <p>Reviewers pin notes to the real page. Claude groups the feedback, makes the change in your repo, and opens a PR with before and after screenshots. Then reviewers vote.</p>
-    <ol class="steps" aria-label="The five steps on this page">
-      <li><a href="#notes">Leave notes</a></li>
-      <li><a href="#issue">Filed on GitHub</a></li>
-      <li><a href="#build">Claude makes the change</a></li>
-      <li><a href="#compare">Compare and vote</a></li>
-      <li><a href="#options">Ask for options</a></li>
-    </ol>
-  </div>
-
-  <section class="step" id="notes" aria-labelledby="h-notes">
-    <div class="label">
-      <div class="n">Step 1</div>
-      <h2 id="h-notes">Leave notes on the real page</h2>
-      <p>This is the widget, running on a sample checkout. Notes stick to the element you click, so the context survives.</p>
-      <p>Nothing you type leaves your browser in this demo.</p>
+  <main id="top">
+    <div class="hero">
+      <img class="mark" src="assets/peanut-mark.png" alt="" width="272" height="224">
+      <h1>Peanut Gallery</h1>
+      <p class="tagline">Where feedback actually ships.</p>
+      <p class="flow">prototype feedback → design updates → pull requests</p>
+      <p class="lead">Reviewers pin notes to the real page. Claude groups the feedback, makes the change in your repo, and opens a pull request with before and after screenshots. Then reviewers vote.</p>
+      <ol class="stepnav" aria-label="The five steps on this page">
+        <li><a href="#notes"><span class="n">01</span>Leave notes</a></li>
+        <li><a href="#issue"><span class="n">02</span>Collect</a></li>
+        <li><a href="#build"><span class="n">03</span>Interpret and build</a></li>
+        <li><a href="#compare"><span class="n">04</span>Compare</a></li>
+        <li><a href="#options"><span class="n">05</span>Options</a></li>
+      </ol>
     </div>
-    <div class="content">
-      <div class="hint">
-        A reviewer already left two notes (the numbered pins). Add your own:
-        <ol>
-          <li>Press <span class="kbd">Comment</span> in the toolbar at the bottom right of the checkout.</li>
-          <li>Click anything on the page and type a note.</li>
-          <li>Press <span class="kbd">Review</span>, then <span class="kbd">Submit</span>.</li>
-        </ol>
+
+    <section class="step" id="notes" aria-labelledby="h-notes">
+      <div class="cap">
+        <div class="kicker"><span class="n">01</span>Leave notes</div>
+        <h2 id="h-notes">Comment on the real page.</h2>
+        <p>This is the widget, running on a sample checkout. Notes stick to the element you click, so the context survives.</p>
+        <p>Nothing you type leaves your browser in this demo.</p>
       </div>
-      <div class="frame">
-        <div class="chrome"><i></i><i></i><i></i><span>checkout.acme.example/?peanut</span></div>
-        <iframe id="proto" src="checkout.html" title="Sample checkout prototype with the Peanut Gallery widget"></iframe>
-      </div>
-    </div>
-  </section>
-
-  <section class="step" id="issue" aria-labelledby="h-issue">
-    <div class="label">
-      <div class="n">Step 2</div>
-      <h2 id="h-issue">The notes become a GitHub issue</h2>
-      <p>GitHub Issues is the database, so feedback lives next to the code. With the optional relay, reviewers don't need a GitHub account.</p>
-    </div>
-    <div class="content">
-      <div class="issue" aria-live="polite">
-        <header>
-          <h3><span id="issue-title">Prototype feedback</span> <span class="num">#34</span></h3>
-          <div class="labels"><span>peanut-gallery</span><span>peanut-gallery:feedback</span></div>
-        </header>
-        <div class="md" id="issue-body"></div>
-      </div>
-      <p class="caption" id="issue-caption">Generated from the notes on the checkout above, exactly as the widget files it. Add or edit a note and this updates.</p>
-    </div>
-  </section>
-
-  <section class="step" id="build" aria-labelledby="h-build">
-    <div class="label">
-      <div class="n">Step 3</div>
-      <h2 id="h-build">Claude groups the feedback and makes the change</h2>
-      <p>Run <code>npx peanut-gallery review</code>. Notes are clustered into proposals, then a coding agent implements each one on its own branch, inside your design system.</p>
-    </div>
-    <div class="content">
-      <p class="notice" id="own-notes" hidden>Claude doesn't run live in this demo. In your repo it works from your reviewers' notes, using your own Claude login or API key. Below is a real run on the two example notes.</p>
-      <p class="recorded"><strong>Recorded run</strong> · Nov 7, 2026 · Claude Sonnet 5.5 on the two example notes, in a test repo with a <code>tokens.css</code> design system and a <code>CLAUDE.md</code>. Nothing below is mocked up.</p>
-      <div class="cards">
-        <article class="card">
-          <h3>Make "Pay now" the primary CTA and show the total on it</h3>
-          <p>The button reads "Pay now" with no amount. Put the total in the label and give it primary styling so the next step is clear.</p>
-          <div class="meta"><span>1 reviewer · 1 note</span><span>effort: small</span><span>confidence 70%</span></div>
-        </article>
-        <article class="card">
-          <h3>Increase prominence of the order total</h3>
-          <p>The total in the order summary feels buried. Enlarge it and give it more weight so it stands out, without changing the layout.</p>
-          <div class="meta"><span>1 reviewer · 1 note</span><span>effort: small</span><span>confidence 75%</span></div>
-        </article>
-      </div>
-      <pre class="diff" aria-label="Code change for the first proposal"><span class="file">index.html</span>
-<span class="del">-  &lt;button class="btn" data-testid="pay"&gt;Pay now&lt;/button&gt;</span>
-<span class="add">+  &lt;button class="btn btn--primary" data-testid="pay"&gt;Pay &lt;span data-total-ref&gt;&lt;/span&gt;&lt;/button&gt;</span>
-<span class="add">+  &lt;script&gt;/* Pay button amount mirrors the order total so the two cannot drift apart. */&lt;/script&gt;</span>
-
-<span class="file">styles.css</span>
-<span class="add">+/* Primary variant: --accent darkened with --ink so --on-accent text meets 4.5:1 (plain --accent is ~4.3:1). */</span>
-<span class="add">+.btn--primary { font-weight: 600; background: color-mix(in srgb, var(--accent), var(--ink) 15%);</span>
-<span class="add">+                border-color: transparent; color: var(--on-accent); }</span>
-<span class="add">+.btn--primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }</span></pre>
-      <div class="card">
-        <h3>From the pull request</h3>
-        <p>Claude noticed white text on the brand accent fails contrast, so it darkened the fill using the existing tokens and flagged that a designer may want a dedicated token. It used no raw colours, reused the <code>.btn</code> pattern from <code>CLAUDE.md</code>, and couldn't touch <code>tokens.css</code>.</p>
-        <div class="meta"><span class="ok">✓ Undefined CSS classes</span><span class="ok">✓ Raw colour drift</span><span>$0.91 · 7 turns</span></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="step" id="compare" aria-labelledby="h-compare">
-    <div class="label">
-      <div class="n">Step 4</div>
-      <h2 id="h-compare">Compare before and after, then vote</h2>
-      <p>Each PR carries screenshots of the elements your reviewers pointed at, and the full page. The comparison is posted back on the issue for reviewers.</p>
-    </div>
-    <div class="content">
-      <div class="compare">
-        <div class="tabs" role="group" aria-label="What to compare">
-          <button type="button" data-view="el" aria-pressed="true">The button</button>
-          <button type="button" data-view="page" aria-pressed="false">Whole page</button>
+      <div class="content">
+        <div class="card try">
+          <div class="badges"><span class="badge warn">Try it</span></div>
+          <p style="color:var(--ink)">A reviewer already left two notes (the numbered pins). Add your own:</p>
+          <ol>
+            <li>Press <span class="key on">Comment</span> in the toolbar at the bottom right of the checkout.</li>
+            <li>Click anything on the page and type a note.</li>
+            <li>Press <span class="key">Review</span>, then <span class="key go">Submit</span>.</li>
+          </ol>
         </div>
-        <div class="slider" id="slider">
-          <img id="img-before" src="assets/pr35-before-el1.png" alt="Before: a plain outlined Pay now button next to Back" width="1120" height="480">
-          <img id="img-after" class="after" src="assets/pr35-after-el1.png" alt="After: a filled blue button reading Pay $150.50" width="1120" height="480">
-          <span class="handle" aria-hidden="true"></span>
-          <span class="tagl">BEFORE</span><span class="tagr">AFTER</span>
-        </div>
-        <label class="sr" for="cut">Before and after divider</label>
-        <input class="range" id="cut" type="range" min="0" max="100" value="50">
-      </div>
-      <div>
-        <p class="caption" style="margin-bottom:8px">Reviewers answer on the issue in plain words, or with 👍 / 👎. Which do you prefer?</p>
-        <div class="vote" role="group" aria-label="Vote">
-          <button type="button" data-vote="after" aria-pressed="false">After</button>
-          <button type="button" data-vote="before" aria-pressed="false">Before</button>
-          <button type="button" data-vote="neither" aria-pressed="false">Neither, try something else</button>
+        <div class="win">
+          <div class="bar"><i></i><i></i><i></i><span class="url"><b>checkout.acme.example</b>/?peanut</span></div>
+          <iframe id="proto" src="checkout.html" title="Sample checkout prototype with the Peanut Gallery widget"></iframe>
         </div>
       </div>
-      <div class="reply" id="reply" hidden aria-live="polite">
-        <div><span class="who">You</span> replied on issue #34: <q id="reply-text"></q></div>
-        <div class="outcome" id="reply-outcome"></div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="step" id="options" aria-labelledby="h-options">
-    <div class="label">
-      <div class="n">Step 5</div>
-      <h2 id="h-options">Not quite right? Ask for options</h2>
-      <p>Generate one to three directions for the same feedback. Each becomes its own PR, and reviewers pick from one comparison.</p>
-    </div>
-    <div class="content">
-      <div class="cmd"><code>npx peanut-gallery variants pr_930dbb25 --count 2 --note "one lighter, one bolder"</code><button class="copy" type="button">Copy</button></div>
-      <div class="cards">
-        <article class="card">
-          <div class="opt">A</div>
-          <h3>Lighter: primary variant, existing tokens only</h3>
-          <p>Keeps the layout and changes only the Pay button. It goes full width below 768px.</p>
-        </article>
-        <article class="card">
-          <div class="opt">B</div>
-          <h3>Bolder: dominant full-width action</h3>
-          <p>Pay becomes the single dominant action, full width at every size, with Back demoted to a text link.</p>
-        </article>
+    <section class="step" id="issue" aria-labelledby="h-issue">
+      <div class="cap">
+        <div class="kicker"><span class="n">02</span>Collect</div>
+        <h2 id="h-issue">Feedback lands in GitHub Issues.</h2>
+        <p>One issue per review session: readable for people, with the element data Claude needs tucked inside. With the optional relay, reviewers don't need a GitHub account.</p>
       </div>
-      <figure class="frame" style="margin:0">
-        <img src="assets/options.png" alt="Options comparison posted on the issue: before, option A with a filled Pay button, and option B with a full-width Pay button and Back as a link" width="1192" height="852" loading="lazy">
-      </figure>
-      <p class="caption">The comparison image as it was posted on the issue, from the same recorded run.</p>
-    </div>
-  </section>
+      <div class="content">
+        <div class="card issue" aria-live="polite">
+          <header>
+            <h3><span id="issue-title">Prototype feedback</span> <span class="num">#34</span></h3>
+            <div class="by"><span class="open">Open</span><span>opened via Peanut Gallery</span><span class="lbl root">peanut-gallery</span><span class="lbl fb">peanut-gallery:feedback</span></div>
+          </header>
+          <div class="md" id="issue-body"></div>
+        </div>
+        <p class="caption" id="issue-caption">Generated from the notes on the checkout above, exactly as the widget files it. Add or edit a note and this updates.</p>
+      </div>
+    </section>
 
-  <section class="step" id="install" aria-labelledby="h-install">
-    <div class="label">
-      <div class="n">Your turn</div>
+    <section class="step" id="build" aria-labelledby="h-build">
+      <div class="cap">
+        <div class="kicker"><span class="n">03</span>Interpret and build</div>
+        <h2 id="h-build">Each change gets its own branch.</h2>
+        <p>Run <code>npx peanut-gallery review</code>. Claude groups the notes into proposals, then implements each one on its own branch, inside your design system, with a cost estimate up front and a budget cap you set.</p>
+      </div>
+      <div class="content">
+        <p class="notice" id="own-notes" hidden>Claude doesn't run live in this demo. In your repo it works from your reviewers' notes, using your own Claude login or API key. Below is a real run on the two example notes.</p>
+        <div class="card recorded">
+          <span class="badge dark">RECORDED RUN</span>
+          <p>Nov 7, 2026 · Claude Sonnet 5.5 on the two example notes, in a test repo with a <code>tokens.css</code> design system and a <code>CLAUDE.md</code>. Nothing below is mocked up.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <h3>Make "Pay now" the primary CTA and show the total on it</h3>
+            <p>The button reads "Pay now" with no amount. Put the total in the label and give it primary styling so the next step is clear.</p>
+            <div class="badges"><span class="badge">1 reviewer · 1 note</span><span class="badge">small</span><span class="badge">confidence 70%</span></div>
+          </article>
+          <article class="card">
+            <h3>Increase prominence of the order total</h3>
+            <p>The total in the order summary feels buried. Enlarge it and give it more weight so it stands out, without changing the layout.</p>
+            <div class="badges"><span class="badge">1 reviewer · 1 note</span><span class="badge">small</span><span class="badge">confidence 75%</span></div>
+          </article>
+        </div>
+        <div class="term" role="figure" aria-label="Code change for the first proposal">
+          <div class="tbar"><i></i><i></i><i></i><span>PR #35 · peanut-gallery/make-pay-now-the-primary-cta</span></div>
+<pre><span class="t-file">index.html</span>
+<span class="t-del">-  &lt;button class="btn" data-testid="pay"&gt;Pay now&lt;/button&gt;</span>
+<span class="t-add">+  &lt;button class="btn btn--primary" data-testid="pay"&gt;Pay &lt;span data-total-ref&gt;&lt;/span&gt;&lt;/button&gt;</span>
+<span class="t-add">+  &lt;script&gt;/* Pay button amount mirrors the order total so the two cannot drift apart. */&lt;/script&gt;</span>
+
+<span class="t-file">styles.css</span>
+<span class="t-dim">+/* Primary variant: --accent darkened with --ink so --on-accent text meets 4.5:1 (plain --accent is ~4.3:1). */</span>
+<span class="t-add">+.btn--primary { font-weight: 600; background: color-mix(in srgb, var(--accent), var(--ink) 15%);</span>
+<span class="t-add">+                border-color: transparent; color: var(--on-accent); }</span>
+<span class="t-add">+.btn--primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }</span></pre>
+        </div>
+        <div class="card">
+          <h3>From the pull request</h3>
+          <p>Claude noticed white text on the brand accent fails contrast, so it darkened the fill using the existing tokens and flagged that a designer may want a dedicated token. It used no raw colours, reused the <code>.btn</code> pattern from <code>CLAUDE.md</code>, and couldn't touch <code>tokens.css</code>.</p>
+          <div class="badges"><span class="badge ok">✓ Undefined CSS classes</span><span class="badge ok">✓ Raw colour drift</span><span class="badge">$0.91 · 7 turns</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="step" id="compare" aria-labelledby="h-compare">
+      <div class="cap">
+        <div class="kicker"><span class="n">04</span>Compare</div>
+        <h2 id="h-compare">Before and after, side by side.</h2>
+        <p>Each PR carries screenshots of the elements your reviewers pointed at, and the full page. The comparison is posted back on the issue, and reviewers vote.</p>
+      </div>
+      <div class="content">
+        <div class="compare">
+          <div class="pills" role="group" aria-label="What to compare">
+            <button type="button" data-view="el" aria-pressed="true">The button</button>
+            <button type="button" data-view="page" aria-pressed="false">Whole page</button>
+          </div>
+          <div class="slider" id="slider">
+            <img id="img-before" src="assets/pr35-before-el1.png" alt="Before: a plain outlined Pay now button next to Back" width="1120" height="480">
+            <img id="img-after" class="after" src="assets/pr35-after-el1.png" alt="After: a filled blue button reading Pay $150.50" width="1120" height="480">
+            <span class="handle" aria-hidden="true"></span>
+            <span class="tagl">BEFORE</span><span class="tagr">AFTER</span>
+          </div>
+          <label class="sr" for="cut">Before and after divider</label>
+          <input class="range" id="cut" type="range" min="0" max="100" value="50">
+        </div>
+        <div>
+          <p class="caption" style="margin-bottom:10px">Reviewers answer on the issue in plain words, or with 👍 / 👎. Which do you prefer?</p>
+          <div class="vote" role="group" aria-label="Vote">
+            <button type="button" data-vote="after" aria-pressed="false">After</button>
+            <button type="button" data-vote="before" aria-pressed="false">Before</button>
+            <button type="button" data-vote="neither" aria-pressed="false">Neither, try something else</button>
+          </div>
+        </div>
+        <div class="card reply" id="reply" hidden aria-live="polite">
+          <div><span class="who">You</span> replied on issue #34: <q id="reply-text"></q></div>
+          <div class="outcome" id="reply-outcome"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="step" id="options" aria-labelledby="h-options">
+      <div class="cap">
+        <div class="kicker"><span class="n">05</span>Options</div>
+        <h2 id="h-options">Not quite right? Ask for options.</h2>
+        <p>Generate one to three directions for the same feedback. Each becomes its own PR, and reviewers pick from one comparison.</p>
+      </div>
+      <div class="content">
+        <div class="code">
+          <div class="lab"><span>Generate options</span><button class="copy" type="button">Copy</button></div>
+          <code>npx peanut-gallery variants pr_930dbb25 --count 2 --note "one lighter, one bolder"</code>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <div class="opt">A</div>
+            <h3>Lighter: primary variant, existing tokens only</h3>
+            <p>Keeps the layout and changes only the Pay button. It goes full width below 768px.</p>
+          </article>
+          <article class="card">
+            <div class="opt">B</div>
+            <h3>Bolder: dominant full-width action</h3>
+            <p>Pay becomes the single dominant action, full width at every size, with Back demoted to a text link.</p>
+          </article>
+        </div>
+        <figure class="win">
+          <div class="bar"><i></i><i></i><i></i><span class="url"><b>github.com</b>/…/issues/34</span></div>
+          <img src="assets/options.png" alt="Options comparison posted on the issue: before, option A with a filled Pay button, and option B with a full-width Pay button and Back as a link" width="1192" height="852">
+        </figure>
+        <p class="caption">The comparison image as it was posted on the issue, from the same recorded run.</p>
+      </div>
+    </section>
+
+    <section class="finale" id="install" aria-labelledby="h-install">
+      <img class="mark" src="assets/peanut-mark.png" alt="" width="272" height="224">
       <h2 id="h-install">Try it on your prototype</h2>
-      <p>Works on any hosted page with a GitHub repo. AI runs on your own Claude Code login or Anthropic API key, with a spending cap you set.</p>
-    </div>
-    <div class="content install">
-      <h3>1. Add the CLI and set up your repo</h3>
-      <div class="cmd"><code>npm i -D peanut-gallery &amp;&amp; npx peanut-gallery init</code><button class="copy" type="button">Copy</button></div>
-      <h3>2. Add the widget to your prototype</h3>
-      <div class="cmd"><code>&lt;script src="https://unpkg.com/@pixelatlarge/peanut-gallery-widget/dist/peanut-gallery.global.js" data-repo="you/your-repo" data-activation="query"&gt;&lt;/script&gt;</code><button class="copy" type="button">Copy</button></div>
-      <h3>3. When feedback comes in</h3>
-      <div class="cmd"><code>npx peanut-gallery review</code><button class="copy" type="button">Copy</button></div>
-    </div>
-  </section>
+      <p class="tagline">Add one script tag. Run one command.</p>
+      <div class="codes">
+        <div class="code">
+          <div class="lab"><span>1 · In the repo</span><button class="copy" type="button">Copy</button></div>
+          <code>npm i -D peanut-gallery &amp;&amp; npx peanut-gallery init</code>
+        </div>
+        <div class="code">
+          <div class="lab"><span>2 · In the prototype</span><button class="copy" type="button">Copy</button></div>
+          <code>&lt;script src="https://unpkg.com/@pixelatlarge/peanut-gallery-widget/dist/peanut-gallery.global.js"
+        data-repo="you/your-repo" data-activation="query"&gt;&lt;/script&gt;</code>
+        </div>
+        <div class="code">
+          <div class="lab"><span>3 · When feedback comes in</span><button class="copy" type="button">Copy</button></div>
+          <code>npx peanut-gallery review</code>
+        </div>
+      </div>
+      <p class="foot">AI runs on your own Claude login or API key, with a budget you set · <a href="https://github.com/PixelAtLarge/peanut-gallery">github.com/PixelAtLarge/peanut-gallery</a></p>
+    </section>
+  </main>
 
   <footer>
-    <span>Peanut Gallery · MIT licensed</span>
-    <a href="https://github.com/PixelAtLarge/peanut-gallery">Source on GitHub</a>
+    <a class="brandmini" href="#top"><img src="assets/peanut-mark.png" alt="" width="272" height="224"><span>Peanut Gallery</span></a>
+    <span>MIT licensed</span>
+    <nav aria-label="Footer links">
+      <a href="https://www.npmjs.com/package/peanut-gallery">npm</a>
+      <a href="https://github.com/PixelAtLarge/peanut-gallery">GitHub</a>
+    </nav>
   </footer>
-</main>
+</div>
 <script src="main.js"></script>
 </body>
 </html>

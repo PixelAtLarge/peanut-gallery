@@ -114,7 +114,7 @@ const views = {
   el: { before: 'assets/pr35-before-el1.png', after: 'assets/pr35-after-el1.png', w: 1120, h: 480, alt: ['Before: a plain outlined Pay now button next to Back', 'After: a filled blue button reading Pay $150.50'] },
   page: { before: 'assets/pr35-before-page1.png', after: 'assets/pr35-after-page1.png', w: 2560, h: 1600, alt: ['Before: the whole checkout page', 'After: the whole checkout page with the filled Pay $150.50 button'] },
 } as const;
-document.querySelectorAll<HTMLButtonElement>('.tabs button').forEach((b) =>
+document.querySelectorAll<HTMLButtonElement>('.pills button').forEach((b) =>
   b.addEventListener('click', () => {
     const v = views[b.dataset.view as keyof typeof views];
     const before = $<HTMLImageElement>('#img-before');
@@ -127,7 +127,7 @@ document.querySelectorAll<HTMLButtonElement>('.tabs button').forEach((b) =>
     }
     before.alt = v.alt[0];
     after.alt = v.alt[1];
-    document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.pills button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }),
 );
 
@@ -152,13 +152,13 @@ document.querySelectorAll<HTMLButtonElement>('.vote button').forEach((b) =>
 
 document.querySelectorAll<HTMLButtonElement>('.copy').forEach((b) =>
   b.addEventListener('click', async () => {
-    const text = b.parentElement?.querySelector('code')?.textContent ?? '';
+    const code = b.closest('.code')?.querySelector('code');
+    const text = code?.textContent ?? '';
     try {
       await navigator.clipboard.writeText(text);
       b.textContent = 'Copied';
     } catch {
       // Clipboard can be blocked in embedded frames: select the text so it can be copied by hand.
-      const code = b.parentElement?.querySelector('code');
       if (code) getSelection()?.selectAllChildren(code);
       b.textContent = 'Selected';
     }
