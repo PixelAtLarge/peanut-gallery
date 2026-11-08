@@ -205,6 +205,39 @@ describe('widget', () => {
     await frame();
   });
 
+  it('records the clicks that led to a note (not the note click itself), reset on navigation', async () => {
+    const start = location.pathname;
+    document.body.innerHTML = `<main><h1>Cart</h1><button data-testid="remove">Remove</button><div id="slot"></div></main>`;
+    document.querySelector('[data-testid=remove]')!.addEventListener('click', () => {
+      document.getElementById('slot')!.innerHTML = '<div role="dialog"><h2 data-testid="dialog-title">Remove item?</h2></div>';
+    });
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna' }).mount();
+    const sr = shadow(w);
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+    const addNote = (el: Element, text: string) => {
+      (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+      el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+      click(el);
+      (sr.querySelector('textarea') as HTMLTextAreaElement).value = text;
+      (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    };
+    click(document.querySelector('[data-testid=remove]')!);
+    addNote(document.querySelector('[data-testid=dialog-title]')!, 'Name the plant');
+    const [n1] = w.getAnnotations();
+    expect(n1.steps?.map((s) => s.selector)).toEqual(['button[data-testid="remove"]']);
+    expect(n1.steps?.[0].textFingerprint).toBe('Remove');
+
+    history.pushState(null, '', '/elsewhere');
+    addNote(document.querySelector('h1')!, 'Bigger heading');
+    expect(w.getAnnotations()[1].steps).toBeUndefined();
+
+    for (let i = 0; i < 8; i++) click(document.querySelector('h1')!);
+    addNote(document.querySelector('h1')!, 'Again');
+    expect(w.getAnnotations()[2].steps).toHaveLength(5);
+    w.destroy();
+    history.replaceState(null, '', start);
+  });
+
   it('respects activation=query', () => {
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', activation: 'query' }).mount();
     expect(document.querySelector('peanut-gallery')).toBeNull();

@@ -62,27 +62,30 @@ if (remoteHasBranch) {
 // Refresh the app and the widget build every run, so the branch tests the current code.
 cpSync(join(ROOT, 'examples/react-app'), '.', { recursive: true, filter: (src) => !src.includes('node_modules') });
 mkdirSync('vendor', { recursive: true });
-const packed = sh('npm', ['pack', '--pack-destination', join(DIR, 'vendor'), '--silent'], { cwd: join(ROOT, 'packages/widget') }).split('\n').pop();
-cpSync(join('vendor', packed), WIDGET_TGZ);
-rmSync(join('vendor', packed));
+// The widget imports core at runtime, so ship both from the local build.
+const VENDOR = { widget: WIDGET_TGZ, core: 'vendor/peanut-gallery-core.tgz' };
+for (const [name, dest] of Object.entries(VENDOR)) {
+  const packed = sh('npm', ['pack', '--pack-destination', join(DIR, 'vendor'), '--silent'], { cwd: join(ROOT, 'packages', name) }).split('\n').pop();
+  cpSync(join('vendor', packed), dest);
+  rmSync(join('vendor', packed));
+}
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-pkg.dependencies['@pixelatlarge/peanut-gallery-widget'] = `file:${WIDGET_TGZ}`;
+pkg.dependencies['@pixelatlarge/peanut-gallery-widget'] = `file:${VENDOR.widget}`;
+pkg.dependencies['@pixelatlarge/peanut-gallery-core'] = `file:${VENDOR.core}`;
 writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 writeFileSync('.gitignore', 'node_modules\ndist\n.peanut-gallery/worktrees/\n.peanut-gallery/compare/\n');
-// Same version number every run, so npm would keep the old copy: drop it (and Vite's
-// pre-bundled copy) so the app really runs the widget we just built.
-rmSync('node_modules/@pixelatlarge/peanut-gallery-widget', { recursive: true, force: true });
+// Same version number every run, so npm would keep the old copies: drop them (and Vite's
+// pre-bundled copy), and name the tarballs so npm re-reads them and updates the lockfile.
+for (const d of ['widget', 'core']) rmSync(`node_modules/@pixelatlarge/peanut-gallery-${d}`, { recursive: true, force: true });
 rmSync('node_modules/.vite', { recursive: true, force: true });
-// Name the tarball explicitly so npm re-reads it and updates the lockfile's checksum
-// (a plain install trusts the old checksum and serves the old tarball from its cache).
-sh('npm', ['install', '--no-audit', '--no-fund', '--silent', `./${WIDGET_TGZ}`]);
+sh('npm', ['install', '--no-audit', '--no-fund', '--silent', `./${VENDOR.core}`, `./${VENDOR.widget}`]);
 const installed = readdirSync('node_modules/@pixelatlarge/peanut-gallery-widget/dist').map((f) => readFileSync(join('node_modules/@pixelatlarge/peanut-gallery-widget/dist', f), 'utf8')).join('');
 git('add', 'package.json', 'package-lock.json', 'index.html', 'vite.config.js', 'CLAUDE.md', 'src', 'vendor', '.gitignore');
 if (sh('git', ['status', '--porcelain', '--untracked-files=no'])) {
   git('commit', '-q', '-m', 'React example app for peanut-gallery e2e');
   sh('git', ['push', '-q', '-u', 'origin', `HEAD:${BRANCH}`]);
 }
-check(`React app is on the ${BRANCH} branch, running the widget just built`, existsSync('src/pages/Cart.jsx') && existsSync('node_modules/vite') && installed.includes('peanut-gallery:locationchange') && installed.includes('confidence < 0.4'));
+check(`React app is on the ${BRANCH} branch, running the widget just built`, existsSync('src/pages/Cart.jsx') && existsSync('node_modules/vite') && installed.includes('peanut-gallery:locationchange') && installed.includes('recordStep') && existsSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json') && JSON.parse(readFileSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json', 'utf8')).version === JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8')).version);
 
 const DEV = 'npx vite --port {port} --strictPort --host 127.0.0.1';
 sh('node', [CLI, 'init', '--yes', '--repo', SANDBOX, '--prototype-url', '', '--dev', DEV]);
@@ -177,6 +180,8 @@ stopVite();
 check('no errors in the app while reviewing', errors.length === 0, errors.join(' | '));
 const paths = session.annotations.map((a) => new URL(a.pageUrl).pathname);
 check('session has 3 notes with the right route on each', session.annotations.length === 3 && paths.join(',') === '/,/,/checkout', paths.join(', '));
+const stepsOf = (s) => s.annotations.map((a) => (a.steps ?? []).map((st) => st.textFingerprint));
+check('the modal note carries the click that opened it (and only that)', JSON.stringify(stepsOf(session)) === JSON.stringify([[], ['Remove'], []]), JSON.stringify(stepsOf(session)));
 session.author = 'e2e-reviewer';
 
 // ── 3. relay → issue → pull ───────────────────────────────────────────────────
@@ -201,7 +206,9 @@ for (let i = 0; i < 6 && !ours; i++) {
   sh('node', [CLI, 'pull']);
   ours = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8')).find((x) => x.number === filed.issueNumber);
 }
-check('pull parsed the issue back into a session', ours?.session.annotations.length === 3);
+check('pull parsed the issue back into a session, clicks included', ours?.session.annotations.length === 3 && JSON.stringify(stepsOf(ours.session)) === JSON.stringify(stepsOf(session)));
+const issueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}`)).body;
+check('the issue tells humans how to reach the modal note', issueBody.includes('Reached by clicking:** “Remove”'));
 
 // ── 4. interpret ──────────────────────────────────────────────────────────────
 const lib = await import(join(ROOT, 'packages/cli/dist/index.js'));
@@ -255,7 +262,7 @@ check('pay change: close-up of the button on /checkout', payShot && shotWidth(pa
 const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}/files`)).map((f) => f.filename);
 check('PR contains the JSX/CSS change and its comparison', prFiles.includes('src/pages/Checkout.jsx') && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
 const modalShot = modalRun?.screenshots?.[0];
-note(`modal change: "${modalShot?.label}" is ${shotWidth(modalShot?.after, modalRun)}px wide (${shotWidth(modalShot?.after, modalRun) < 1280 ? 'a close-up' : 'full page'}) — the dialog only exists after clicking Remove, so a plain page load can't show it`);
+check('modal change: clicks replayed, close-up of the dialog title before and after', modalShot && /after clicking “Remove”/.test(modalShot.label) && shotWidth(modalShot.before, modalRun) > 0 && shotWidth(modalShot.before, modalRun) < 1280 && shotWidth(modalShot.after, modalRun) < 1280, `${modalShot?.label} · ${shotWidth(modalShot?.before, modalRun)}px / ${shotWidth(modalShot?.after, modalRun)}px wide`);
 
 summary();
 console.log(`\nWorkdir: ${DIR}\nCompare pages: ${runs.map((r) => r.comparePath).join(' , ')}`);

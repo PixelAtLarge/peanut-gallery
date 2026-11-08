@@ -79,6 +79,14 @@ describe('issue format', () => {
     expect(issueToSession(body)).toEqual(session);
   });
 
+  it('shows and round-trips the clicks that led to a note', () => {
+    const step = { ...session.annotations[0].anchor, selector: 'button[data-testid="remove"]', textFingerprint: 'Remove', tag: 'button' };
+    const withSteps: ReviewSession = { ...session, annotations: [{ ...session.annotations[0], steps: [step] }] };
+    const { body } = sessionToIssue(withSteps);
+    expect(body).toContain('- **Reached by clicking:** “Remove”');
+    expect(issueToSession(body)).toEqual(withSteps);
+  });
+
   it('returns null for unrelated bodies', () => {
     expect(issueToSession('just an ordinary issue')).toBeNull();
   });

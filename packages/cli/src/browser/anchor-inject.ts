@@ -6,6 +6,8 @@ declare global {
       /** Resolve an anchor and return its viewport rect + confidence, optionally outlining it. */
       locate(anchor: ElementAnchor, outline?: boolean, color?: string): { rect: { x: number; y: number; width: number; height: number } | null; confidence: number };
       clearOutlines(): void;
+      /** Center of a recorded click target, scrolled into view, or null if it isn't there. */
+      clickPoint(anchor: ElementAnchor): { x: number; y: number } | null;
     };
   }
 }
@@ -24,6 +26,14 @@ window.__peanutGallery = {
       (el as HTMLElement).style.outlineOffset = '2px';
     }
     return { rect: { x: r.left, y: r.top, width: r.width, height: r.height }, confidence };
+  },
+  clickPoint(anchor) {
+    const { el, confidence } = resolveAnchor(anchor, document);
+    if (!el || confidence < 0.4) return null;
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return { x: r.left + r.width * (anchor.offset?.x ?? 0.5), y: r.top + r.height * (anchor.offset?.y ?? 0.5) };
   },
   clearOutlines() {
     document.querySelectorAll<HTMLElement>('[data-peanut-gallery-outline]').forEach((e) => {

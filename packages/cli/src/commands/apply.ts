@@ -13,7 +13,7 @@ import { effectivePolicy, readProjectGuidance } from '../design.js';
 import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
-import { captureShots, renderHtmlToPng, type ShotTarget } from '../screenshots.js';
+import { captureShots, renderHtmlToPng, type ShotResult, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
 
 export interface ApplyOptions {
@@ -301,7 +301,7 @@ export async function runProposal(
         const b = await captureShots(ctx.before.url, targets, outDir, { ...shot, prefix: 'before' });
         const a = await captureShots(after.url, targets, outDir, { ...shot, prefix: 'after' });
         const pairs: ComparePair[] = targets.map((t, i) => ({
-          label: t.anchor && b[i].found === false && a[i].found === false ? `${t.label} — full page: this element isn't on the page when it first loads (e.g. it's inside a modal)` : t.label,
+          label: shotLabel(t, b[i], a[i]),
           before: relative(outDir, b[i].file),
           after: relative(outDir, a[i].file),
         }));
@@ -437,10 +437,23 @@ function shotTargets(p: Proposal, annotations: FlatAnnotation[], prototypeUrl?: 
       label: `${anchor.tag}${anchor.textFingerprint ? ` “${anchor.textFingerprint.slice(0, 40)}”` : ''} · ${pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl)}`,
       pagePath: pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl),
       anchor,
+      ...(a?.steps?.length && a.anchor.selector === anchor.selector ? { steps: a.steps } : {}),
     });
   });
   p.pages.forEach((page, i) => targets.push({ key: `page${i + 1}`, label: `Page ${pathOf(page, prototypeUrl)}`, pagePath: pathOf(page, prototypeUrl) }));
   return targets.slice(0, 8);
+}
+
+/** Label for a before/after pair, saying how the element was reached (or why it's a full page). */
+export function shotLabel(t: ShotTarget, before: ShotResult, after: ShotResult): string {
+  if (!t.anchor) return t.label;
+  if (before.found === false && after.found === false) {
+    return t.steps?.length
+      ? `${t.label} — full page: couldn't reach this element, even after replaying the reviewer's clicks`
+      : `${t.label} — full page: this element isn't on the page when it first loads (e.g. it's inside a modal)`;
+  }
+  const clicks = after.replayed?.length ? after.replayed : before.replayed;
+  return clicks?.length ? `${t.label} — after clicking ${clicks.join(' → ')}` : t.label;
 }
 
 export function supportLine(p: Proposal): string {

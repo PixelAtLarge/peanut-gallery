@@ -105,7 +105,7 @@ describe('config', () => {
   it('fills defaults', () => {
     const c = withDefaults({ repo: 'o/r' });
     expect(c.baseBranch).toBe('main');
-    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false });
+    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false, replayClicks: true });
     expect(withDefaults({ repo: 'o/r', screenshot: { width: 390 } }).screenshot.width).toBe(390);
   });
 });
@@ -279,3 +279,17 @@ describe('models + budget', () => {
     }
   });
 });
+
+describe('replayed clicks', () => {
+  it('labels pairs by how the element was reached', async () => {
+    const { shotLabel } = await import('./commands/apply.js');
+    const anchor = { selector: 'h2#t', textFingerprint: 'Remove item?', tag: 'h2', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } };
+    const step = { ...anchor, selector: 'button#remove', textFingerprint: 'Remove', tag: 'button' };
+    const t = { key: 'el1', label: 'h2 “Remove item?” · /', pagePath: '/', anchor, steps: [step] };
+    expect(shotLabel(t, { key: 'el1', label: '', file: '', found: true, replayed: ['“Remove”'] }, { key: 'el1', label: '', file: '', found: true, replayed: ['“Remove”'] })).toBe('h2 “Remove item?” · / — after clicking “Remove”');
+    expect(shotLabel(t, { key: 'el1', label: '', file: '', found: false }, { key: 'el1', label: '', file: '', found: false })).toContain('even after replaying');
+    expect(shotLabel({ ...t, steps: undefined }, { key: 'el1', label: '', file: '', found: false }, { key: 'el1', label: '', file: '', found: false })).toContain('when it first loads');
+    expect(shotLabel(t, { key: 'el1', label: '', file: '', found: true }, { key: 'el1', label: '', file: '', found: true })).toBe(t.label);
+  });
+});
+

@@ -68,7 +68,7 @@ describe('relay as a public endpoint', () => {
 
   it('answers junk bodies with 400, never an unhandled error', async () => {
     const h = make(ok());
-    for (const body of [null, 42, 'x', [], { session: null }, { session: { ...session, annotations: [null] } }, { session: { ...session, annotations: [{ ...session.annotations[0], viewport: 'big' }] } }]) {
+    for (const body of [null, 42, 'x', [], { session: null }, { session: { ...session, annotations: [null] } }, { session: { ...session, annotations: [{ ...session.annotations[0], viewport: 'big' }] } }, { session: { ...session, annotations: [{ ...session.annotations[0], steps: 'click' }] } }, { session: { ...session, annotations: [{ ...session.annotations[0], steps: [{ selector: 1 }] }] } }]) {
       const res = await h(post(body));
       expect(res.status, JSON.stringify(body)).toBe(400);
     }

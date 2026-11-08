@@ -4,6 +4,8 @@ import {
   newIssueUrl,
   uid,
   LABELS,
+  MAX_STEPS,
+  type ElementAnchor,
   type Annotation,
   type AnnotationKind,
   type ReviewSession,
@@ -142,6 +144,9 @@ export class PeanutGalleryWidget {
   private raf = 0;
   private destroyed = false;
   private observer?: MutationObserver;
+  /** The reviewer's recent clicks on this page (see Annotation.steps). */
+  private steps: ElementAnchor[] = [];
+  private stepsPage = '';
 
   constructor(cfg: PeanutGalleryConfig) {
     if (!cfg.repo || !/^[\w.-]+\/[\w.-]+$/.test(cfg.repo)) throw new Error('PeanutGallery: config.repo must be "owner/name"');
@@ -189,6 +194,8 @@ export class PeanutGalleryWidget {
     document.body.append(this.host);
 
     document.addEventListener('mousemove', this.onMouseMove, true);
+    // recordStep first: onClick ends comment mode, and a note's own click isn't a step.
+    document.addEventListener('click', this.recordStep, true);
     document.addEventListener('click', this.onClick, true);
     document.addEventListener('keydown', this.onKey, true);
     window.addEventListener('scroll', this.schedulePins, true);
@@ -221,6 +228,7 @@ export class PeanutGalleryWidget {
     this.destroyed = true;
     document.removeEventListener('mousemove', this.onMouseMove, true);
     document.removeEventListener('click', this.onClick, true);
+    document.removeEventListener('click', this.recordStep, true);
     document.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('scroll', this.schedulePins, true);
     window.removeEventListener('resize', this.schedulePins);
@@ -347,6 +355,32 @@ export class PeanutGalleryWidget {
     this.openComposer(target, e.clientX, e.clientY);
   };
 
+  /**
+   * Remember what the reviewer clicks while using the app (not while placing a note), so a
+   * note inside a modal or a menu carries the clicks that opened it. Recorded in the capture
+   * phase, before the app re-renders. Only the element is kept, never what was typed.
+   */
+  private recordStep = (e: MouseEvent) => {
+    if (this.mode === 'commenting' || this.destroyed) return;
+    if (this.host && e.composedPath().includes(this.host)) return;
+    const raw = e.target;
+    if (!(raw instanceof Element)) return;
+    const target = raw.closest('button, a, summary, label, select, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [data-testid]') ?? raw;
+    const here = this.pageUrl();
+    if (here !== this.stepsPage) {
+      this.steps = [];
+      this.stepsPage = here;
+    }
+    const anchor = createAnchor(target, e.clientX, e.clientY);
+    this.steps.push({ ...anchor, context: undefined, textFingerprint: anchor.textFingerprint.slice(0, 60) });
+    if (this.steps.length > MAX_STEPS) this.steps.shift();
+  };
+
+  private currentSteps(): ElementAnchor[] | undefined {
+    if (this.stepsPage !== this.pageUrl() || !this.steps.length) return undefined;
+    return this.steps.map((st) => ({ ...st }));
+  }
+
   private onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (this.composer) this.closeComposer();
@@ -388,6 +422,7 @@ export class PeanutGalleryWidget {
           viewport: { width: innerWidth, height: innerHeight },
           createdAt: new Date().toISOString(),
           author: this.session.author,
+          ...(this.currentSteps() ? { steps: this.currentSteps() } : {}),
         });
       }
       this.save();

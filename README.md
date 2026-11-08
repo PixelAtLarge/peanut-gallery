@@ -105,6 +105,8 @@ Each note stores a CSS selector that prefers stable hooks (`data-testid`, `id`, 
 
 **Single-page apps.** Pins follow client-side navigation (React Router, Next, Vue Router, hash routes) and redraw when the app re-renders, so a note on a list that loads after the page still lands on its item. A note on something that isn't on screen right now, like a closed modal, hides its pin until the element comes back; it stays in the notes list. Each note remembers its route, ignoring the `?peanut` switch and tracking parameters.
 
+**Notes inside modals and menus.** Each note also keeps the last few clicks the reviewer made on that page before leaving it (the element and its visible label, never what they typed). The issue shows them ("Reached by clicking: “Remove”"), the agent is told how the element is reached, and when the element isn't on the freshly loaded page, the before/after screenshots click through the same steps on your local dev server first, so the comparison shows the open dialog. Set `"screenshot": { "replayClicks": false }` if replaying clicks against your dev server could have side effects.
+
 ## 2. (Optional) Relay for one-click submission
 
 The browser can't hold a GitHub token. If reviewers shouldn't need GitHub accounts, deploy the relay — it's one function that validates the payload and creates the issue.
@@ -259,7 +261,7 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
 - Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
 - Prototypes that need auth: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state.
-- Screenshots load each page fresh, so they can't show states that need clicks first (an open modal, step 3 of a form). Those comparisons fall back to the full page and say so; replaying the reviewer's clicks is planned.
+- Screenshots replay the reviewer's clicks to reach modals and menus, but not typing: a state that needs form input (step 3 of a checkout) falls back to the full page and says so.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.
 - Vote classification is keyword-based; a Claude pass for nuanced replies ("after, but the old colour") is planned.
