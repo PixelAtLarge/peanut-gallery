@@ -101,3 +101,12 @@ describe('issue format', () => {
     expect(parsed?.annotations.length).toBeGreaterThan(0);
   });
 });
+
+describe('sessionToIssue with partial notes', () => {
+  it('omits the viewport line instead of throwing when a note has none', () => {
+    const s = { id: 'rs_1', prototypeUrl: 'https://p', createdAt: 'x', annotations: [{ id: 'an_1', text: 'hi', kind: 'copy', pageUrl: 'https://p/', anchor: { selector: 'h1', textFingerprint: 'Hi', tag: 'h1', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } }, createdAt: 'x' }] };
+    const { body } = sessionToIssue(s as never);
+    expect(body).toContain('`h1` → `h1`');
+    expect(body).not.toContain('Viewport');
+  });
+});

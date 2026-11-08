@@ -59,3 +59,41 @@ describe('relay', () => {
     expect(pre.headers.get('access-control-allow-origin')).toBe('https://proto.example.com');
   });
 });
+
+describe('relay as a public endpoint', () => {
+  const ok = () =>
+    vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ html_url: 'https://github.com/o/r/issues/9', number: 9 }), { status: 201 }));
+  const make = (f: ReturnType<typeof ok> | typeof fetch, extra = {}) =>
+    createRelayHandler({ githubToken: 't', repo: 'o/r', allowedOrigins: ['https://proto.example.com'], fetch: f as typeof fetch, ...extra });
+
+  it('answers junk bodies with 400, never an unhandled error', async () => {
+    const h = make(ok());
+    for (const body of [null, 42, 'x', [], { session: null }, { session: { ...session, annotations: [null] } }, { session: { ...session, annotations: [{ ...session.annotations[0], viewport: 'big' }] } }]) {
+      const res = await h(post(body));
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('accepts a note without a viewport (it is optional in practice)', async () => {
+    const f = ok();
+    const { viewport: _v, ...note } = session.annotations[0];
+    const res = await make(f)(post({ session: { ...session, annotations: [note] } }));
+    expect(res.status).toBe(201);
+    expect(JSON.parse(f.mock.calls[0][1].body as string).body).not.toContain('Viewport');
+  });
+
+  it("drops labels the client isn't allowed to set", async () => {
+    const f = ok();
+    await make(f, { allowedLabels: ['design-review'] })(post({ session, labels: ['peanut-gallery:accepted', 'spam', 'design-review', 7] }));
+    expect(JSON.parse(f.mock.calls[0][1].body as string).labels).toEqual(['peanut-gallery', 'peanut-gallery:feedback', 'design-review']);
+    const g = ok();
+    await make(g)(post({ session, labels: 'peanut-gallery:accepted' }));
+    expect(JSON.parse(g.mock.calls[0][1].body as string).labels).toEqual(['peanut-gallery', 'peanut-gallery:feedback']);
+  });
+
+  it('reports a network failure to GitHub as 502', async () => {
+    const res = await make((async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch)(post({ session }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: 'could not reach GitHub' });
+  });
+});

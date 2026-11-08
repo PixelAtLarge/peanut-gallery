@@ -39,7 +39,9 @@
     "./global": "./dist/peanut-gallery.global.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
@@ -61,5 +63,8 @@
     "@types/react": "^18.3.0",
     "react": "^18.3.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

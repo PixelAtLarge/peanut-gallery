@@ -35,7 +35,9 @@
   },
   "files": [
     "dist",
-    "templates"
+    "templates",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup src/index.ts src/node.ts --format esm,cjs --dts --clean",
@@ -45,5 +47,8 @@
   "dependencies": {
     "@peanut-gallery/core": "0.1.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }
