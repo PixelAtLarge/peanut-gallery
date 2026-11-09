@@ -27,12 +27,15 @@ program
   .option('--repo <owner/name>')
   .option('--prototype-url <url>')
   .option('--dev <command>', 'local dev command, {port} substituted')
+  .option('--action', 'also add a GitHub Actions workflow that runs the loop automatically (on its own if already set up)')
   .action(wrap(initCommand));
 
 program
   .command('pull')
   .description('Fetch open feedback issues into .peanut-gallery/feedback.json')
   .option('--all', 'include closed issues')
+  .option('--new', 'only feedback that has no proposal yet')
+  .option('--issue <numbers...>', 'only these issue numbers')
   .action(wrap(pullCommand));
 
 program
@@ -60,10 +63,12 @@ applyOpts(
     .command('review')
     .description('pull → interpret → (confirm) → apply, in one go')
     .option('-y, --yes', 'skip confirmation')
+    .option('--new', 'only feedback that has no proposal yet (what CI should use)')
+    .option('--issue <numbers...>', 'only these issue numbers')
     .option('--dry-run', 'stop after interpreting (prints the cost estimate)'),
 ).action(
-  wrap(async (opts: { yes?: boolean; dryRun?: boolean } & Record<string, unknown>) => {
-    const issues = await pullCommand();
+  wrap(async (opts: { yes?: boolean; dryRun?: boolean; new?: boolean; issue?: string[] } & Record<string, unknown>) => {
+    const issues = await pullCommand({ new: opts.new, issue: opts.issue });
     if (!issues.length) return;
     const proposals = await interpretCommand({ issues });
     if (!proposals.length) return;
@@ -114,6 +119,7 @@ program
   .command('votes')
   .description('Tally reviewer reactions/replies on posted comparisons')
   .option('--label', 'apply accepted/rejected labels and comment on the PRs')
+  .option('--local', 'only proposals in .peanut-gallery/runs.json (skip reading comparisons from GitHub)')
   .action(wrap(votesCommand));
 
 program

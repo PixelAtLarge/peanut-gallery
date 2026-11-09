@@ -1,8 +1,68 @@
 import pc from 'picocolors';
 import { LABELS } from '@pixelatlarge/peanut-gallery-core';
 import { loadConfig, readJson, workPath, writeJson } from '../config.js';
-import { addLabels, commentOnIssue, getCommentReactions, getIssueCommentsAfter } from '../github.js';
+import { addLabels, commentOnIssue, getCommentReactions, getIssueCommentsAfter, issuesWithLabel, listIssueComments, removeLabel, type IssueComment } from '../github.js';
 import type { RunRecord } from './apply.js';
+import { jobSummary } from '../ci.js';
+
+const MARK = /<sub>peanut-gallery proposal `([^`]+)`(?: · options round (\d+))?<\/sub>/;
+const PR_URL = /https:\/\/github\.com\/[^\s)]+\/pull\/(\d+)/;
+
+/**
+ * Rebuild run records from the comparison comments peanut-gallery posted on an issue, so votes
+ * work without the local .peanut-gallery/runs.json (a CI runner, another machine).
+ */
+export function runsFromComments(issue: number, comments: IssueComment[]): RunRecord[] {
+  const out: RunRecord[] = [];
+  for (const c of comments) {
+    const m = MARK.exec(c.body);
+    if (!m) continue;
+    const id = m[1];
+    const ref = { issue, commentId: c.id, url: c.url };
+    const base = { branch: '', screenshots: [], status: 'pr-opened' as const, createdAt: c.createdAt, issueCommentIds: [ref] };
+    if (m[2]) {
+      const title = /^### \d+ options? for: (.+)$/m.exec(c.body)?.[1]?.trim() ?? id;
+      for (const line of c.body.matchAll(/^\*\*([A-Z]\d*)\*\* — (.+?)(?: · (https:\/\/\S+))?$/gm)) {
+        const pr = line[3] ? PR_URL.exec(line[3]) : null;
+        out.push({ ...base, issueCommentIds: [{ ...ref }], proposalId: `${id}_${line[1].toLowerCase()}`, title: `${title} — ${line[2].trim()}`, variantOf: id, variantLabel: line[1], ...(pr ? { prUrl: pr[0], prNumber: Number(pr[1]) } : {}) });
+      }
+    } else {
+      const title = /^### Proposed update: (.+)$/m.exec(c.body)?.[1]?.trim() ?? id;
+      const pr = /Pull request: (\S+)/.exec(c.body)?.[1];
+      const prm = pr ? PR_URL.exec(pr) : null;
+      out.push({ ...base, proposalId: id, title, ...(prm ? { prUrl: prm[0], prNumber: Number(prm[1]) } : {}) });
+    }
+  }
+  return out;
+}
+
+/** Local records first; add anything only GitHub knows about, and comment refs local records lack. */
+export function mergeRuns(local: RunRecord[], remote: RunRecord[]): RunRecord[] {
+  const all = local.map((r) => ({ ...r, issueCommentIds: [...r.issueCommentIds] }));
+  for (const r of remote) {
+    const have = all.find((x) => x.proposalId === r.proposalId);
+    if (!have) all.push(r);
+    else for (const c of r.issueCommentIds) if (!have.issueCommentIds.some((x) => x.commentId === c.commentId)) have.issueCommentIds.push(c);
+  }
+  return all;
+}
+
+const VERDICT = (key: string) => new RegExp(`<!-- peanut-gallery:verdict ${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} (\\S+) -->`, 'g');
+
+/** The last verdict peanut-gallery posted for `key` among these comments, if any. */
+export function lastVerdict(comments: { body: string }[], key: string): string | null {
+  let last: string | null = null;
+  for (const c of comments) for (const m of c.body.matchAll(VERDICT(key))) last = m[1];
+  return last;
+}
+
+/** Post a verdict on a PR only when it differs from the last one (CI runs this on every reply). */
+async function postVerdictOnce(repo: string, pr: number, key: string, verdict: string, body: string): Promise<boolean> {
+  const comments = await listIssueComments(repo, pr).catch(() => []);
+  if (lastVerdict(comments, key) === verdict) return false;
+  await commentOnIssue(repo, pr, `${body}\n\n<!-- peanut-gallery:verdict ${key} ${verdict} -->`);
+  return true;
+}
 
 export interface VoteSummary {
   proposalId: string;
@@ -14,9 +74,17 @@ export interface VoteSummary {
   verdict: 'after' | 'before' | 'mixed' | 'no-votes';
 }
 
-export async function votesCommand(opts: { label?: boolean } = {}): Promise<VoteSummary[]> {
+export async function votesCommand(opts: { label?: boolean; local?: boolean } = {}): Promise<VoteSummary[]> {
   const cfg = loadConfig();
-  const all = readJson<RunRecord[]>(workPath('runs.json'), []);
+  let all = readJson<RunRecord[]>(workPath('runs.json'), []);
+  if (!opts.local) {
+    // Also read what's on GitHub: proposals posted from CI or another machine.
+    const remote: RunRecord[] = [];
+    for (const n of await issuesWithLabel(cfg.repo, cfg.labels?.proposal ?? LABELS.proposal).catch(() => [] as number[])) {
+      remote.push(...runsFromComments(n, await listIssueComments(cfg.repo, n).catch(() => [])));
+    }
+    all = mergeRuns(all, remote);
+  }
   const runs = all.filter((r) => r.issueCommentIds.length && !r.variantOf);
   // Variant rounds: tally letters on the shared options comment.
   const rounds = new Map<string, RunRecord[]>();
@@ -46,7 +114,7 @@ export async function votesCommand(opts: { label?: boolean } = {}): Promise<Vote
       const issues = Array.from(new Set(vs.flatMap((v) => v.issueCommentIds.map((c) => c.issue))));
       for (const n of issues) await addLabels(cfg.repo, n, [cfg.labels?.accepted ?? LABELS.accepted]).catch(() => {});
       const win = vs.find((v) => v.variantLabel === best);
-      if (win?.prNumber) await commentOnIssue(cfg.repo, win.prNumber, `✅ Reviewers picked option **${best}** (${labels.map((l) => `${l}: ${tally[l]}`).join(', ')}). Ready to merge.`).catch(() => {});
+      if (win?.prNumber) await postVerdictOnce(cfg.repo, win.prNumber, `${pid}:options`, best, `✅ Reviewers picked option **${best}** (${labels.map((l) => `${l}: ${tally[l]}`).join(', ')}). Ready to merge.`).catch(() => {});
     }
   }
   if (!runs.length) {
@@ -79,15 +147,23 @@ export async function votesCommand(opts: { label?: boolean } = {}): Promise<Vote
     for (const rep of replies) console.log(`  ${lean(rep.lean)} ${pc.dim(`#${rep.issue} ${rep.author}:`)} ${rep.text}`);
 
     if (opts.label && (verdict === 'after' || verdict === 'before')) {
-      const label = verdict === 'after' ? (cfg.labels?.accepted ?? LABELS.accepted) : (cfg.labels?.rejected ?? LABELS.rejected);
-      for (const c of r.issueCommentIds) await addLabels(cfg.repo, c.issue, [label]).catch(() => {});
+      const accepted = cfg.labels?.accepted ?? LABELS.accepted;
+      const rejected = cfg.labels?.rejected ?? LABELS.rejected;
+      const [label, other] = verdict === 'after' ? [accepted, rejected] : [rejected, accepted];
+      for (const c of r.issueCommentIds) {
+        await addLabels(cfg.repo, c.issue, [label]).catch(() => {});
+        await removeLabel(cfg.repo, c.issue, other).catch(() => {});
+      }
       if (r.prNumber) {
-        await commentOnIssue(cfg.repo, r.prNumber, verdict === 'after' ? `✅ Reviewers preferred **After** (👍 ${after} · 👎 ${before}). Ready to merge.` : `🛑 Reviewers preferred **Before** (👍 ${after} · 👎 ${before}). Consider closing or revising.`).catch(() => {});
+        await postVerdictOnce(cfg.repo, r.prNumber, r.proposalId, verdict, verdict === 'after' ? `✅ Reviewers preferred **After** (👍 ${after} · 👎 ${before}). Ready to merge.` : `🛑 Reviewers preferred **Before** (👍 ${after} · 👎 ${before}). Consider closing or revising.`).catch(() => {});
       }
       r.status = verdict === 'after' ? 'accepted' : 'rejected';
     }
   }
   if (opts.label) writeJson(workPath('runs.json'), all);
+  if (out.length) {
+    jobSummary(['### 🥜 Votes', '', '| Change | 👍 After | 👎 Before | Verdict |', '| --- | --- | --- | --- |', ...out.map((v) => `| ${v.prUrl ? `[${v.title.replace(/\|/g, '\\|')}](${v.prUrl})` : v.title.replace(/\|/g, '\\|')} | ${v.after} | ${v.before} | ${v.verdict === 'no-votes' ? 'no votes yet' : v.verdict} |`), ''].join('\n'));
+  }
   return out;
 }
 

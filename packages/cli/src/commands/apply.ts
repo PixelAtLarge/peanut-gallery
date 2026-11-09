@@ -13,6 +13,7 @@ import { effectivePolicy, readProjectGuidance } from '../design.js';
 import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
+import { applySummaryMarkdown, jobSummary } from '../ci.js';
 import { captureShots, renderHtmlToPng, type ShotResult, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
 
@@ -115,6 +116,7 @@ export async function applyCommand(opts: ApplyOptions = {}): Promise<RunRecord[]
     await ctx.before?.stop();
   }
   if (ctx.spent) console.log(pc.dim(`\nagent spend this run: $${ctx.spent.toFixed(2)}${budget ? ` of $${budget.toFixed(2)} budget` : ''}`));
+  jobSummary(applySummaryMarkdown(results.map((r) => ({ title: r.title, prUrl: r.prUrl, issues: Array.from(new Set(r.issueCommentIds.map((c) => c.issue))), status: r.status, costUsd: r.costUsd })), ctx.spent, budget));
   return results;
 }
 

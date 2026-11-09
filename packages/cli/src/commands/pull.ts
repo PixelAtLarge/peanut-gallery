@@ -4,11 +4,34 @@ import { ensureWorkDir, loadConfig, workPath, writeJson } from '../config.js';
 import { fetchFeedbackIssues, type FeedbackIssue } from '../github.js';
 import { flatten } from '../interpret.js';
 
-export async function pullCommand(opts: { all?: boolean; quiet?: boolean } = {}): Promise<FeedbackIssue[]> {
+export interface PullOptions {
+  all?: boolean;
+  quiet?: boolean;
+  /** Only feedback that hasn't been turned into a proposal yet (no proposal / accepted / rejected label). */
+  new?: boolean;
+  /** Only these issue numbers. */
+  issue?: (number | string)[];
+}
+
+/** Which feedback issues to work on (pure, for tests). */
+export function selectIssues(issues: FeedbackIssue[], opts: Pick<PullOptions, 'new' | 'issue'>, handledLabels: string[]): FeedbackIssue[] {
+  let out = issues;
+  if (opts.issue?.length) {
+    const want = new Set(opts.issue.map((n) => Number(String(n).replace(/^#/, ''))));
+    out = out.filter((i) => want.has(i.number));
+  }
+  if (opts.new) out = out.filter((i) => !(i.labels ?? []).some((l) => handledLabels.includes(l)));
+  return out;
+}
+
+export async function pullCommand(opts: PullOptions = {}): Promise<FeedbackIssue[]> {
   const cfg = loadConfig();
   ensureWorkDir();
   const label = cfg.labels?.feedback ?? LABELS.feedback;
-  const issues = await fetchFeedbackIssues(cfg.repo, label, opts.all ? 'all' : 'open');
+  const handled = [cfg.labels?.proposal ?? LABELS.proposal, cfg.labels?.accepted ?? LABELS.accepted, cfg.labels?.rejected ?? LABELS.rejected];
+  const fetched = await fetchFeedbackIssues(cfg.repo, label, opts.all ? 'all' : 'open');
+  const issues = selectIssues(fetched, opts, handled);
+  if (!opts.quiet && issues.length < fetched.length) console.log(pc.dim(`${fetched.length - issues.length} feedback issue(s) skipped${opts.new ? ' (already have a proposal)' : ''}`));
   writeJson(workPath('feedback.json'), issues);
   if (!opts.quiet) {
     const flat = flatten(issues);

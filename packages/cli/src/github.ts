@@ -63,10 +63,12 @@ export interface FeedbackIssue {
   author: string;
   createdAt: string;
   session: ReviewSession;
+  /** Label names on the issue (used to skip feedback that already has a proposal). */
+  labels?: string[];
 }
 
 export async function fetchFeedbackIssues(repo: string, label: string, state: 'open' | 'all' = 'open'): Promise<FeedbackIssue[]> {
-  type Raw = { number: number; title: string; body: string; html_url: string; user: { login: string }; created_at: string; pull_request?: unknown };
+  type Raw = { number: number; title: string; body: string; html_url: string; user: { login: string }; created_at: string; pull_request?: unknown; labels?: ({ name: string } | string)[] };
   const raw = await ghJson<Raw[]>([
     'api',
     '--paginate',
@@ -77,7 +79,8 @@ export async function fetchFeedbackIssues(repo: string, label: string, state: 'o
     if (r.pull_request) continue;
     const session = issueToSession(r.body ?? '');
     if (!session) continue;
-    out.push({ number: r.number, title: r.title, url: r.html_url, author: r.user.login, createdAt: r.created_at, session });
+    const labels = (r.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
+    out.push({ number: r.number, title: r.title, url: r.html_url, author: r.user.login, createdAt: r.created_at, session, labels });
   }
   return out;
 }
@@ -106,6 +109,35 @@ export async function commentOnIssue(repo: string, issue: number, body: string):
 
 export async function addLabels(repo: string, issue: number, labels: string[]) {
   await ghApi('POST', `repos/${repo}/issues/${issue}/labels`, { labels });
+}
+
+export async function removeLabel(repo: string, issue: number, label: string) {
+  try {
+    await ghApi('DELETE', `repos/${repo}/issues/${issue}/labels/${encodeURIComponent(label)}`);
+  } catch (err) {
+    if (!/404|Label does not exist/.test((err as Error).message)) throw err;
+  }
+}
+
+export interface IssueComment {
+  id: number;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+export async function listIssueComments(repo: string, issue: number): Promise<IssueComment[]> {
+  type Raw = { id: number; body: string; user: { login: string }; created_at: string; html_url: string };
+  const raw = await ghJson<Raw[]>(['api', '--paginate', `repos/${repo}/issues/${issue}/comments?per_page=100`]);
+  return raw.map((c) => ({ id: c.id, author: c.user.login, body: c.body ?? '', createdAt: c.created_at, url: c.html_url }));
+}
+
+/** Open issue numbers carrying a label (pull requests excluded). */
+export async function issuesWithLabel(repo: string, label: string): Promise<number[]> {
+  type Raw = { number: number; pull_request?: unknown };
+  const raw = await ghJson<Raw[]>(['api', '--paginate', `repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=open&per_page=100`]);
+  return raw.filter((r) => !r.pull_request).map((r) => r.number);
 }
 
 export async function createPr(opts: { repo: string; head: string; base: string; title: string; body: string; cwd: string; draft?: boolean }): Promise<{ url: string; number: number }> {

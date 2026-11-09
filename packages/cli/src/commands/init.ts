@@ -1,12 +1,36 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import pc from 'picocolors';
 import { LABELS } from '@pixelatlarge/peanut-gallery-core';
 import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
 import { ensureLabels, gh, git } from '../github.js';
 import { detectDesignSystem } from '../design.js';
+import { WORKFLOW_PATH, workflowYaml } from '../workflow.js';
 
-export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string }) {
+/** Write the GitHub Actions workflow (never overwrites an existing one). */
+export function writeWorkflow(): boolean {
+  if (existsSync(WORKFLOW_PATH)) {
+    console.log(pc.yellow(`${WORKFLOW_PATH} already exists; left as is.`));
+    return false;
+  }
+  mkdirSync(dirname(WORKFLOW_PATH), { recursive: true });
+  writeFileSync(WORKFLOW_PATH, workflowYaml());
+  console.log(pc.green(`✔ wrote ${WORKFLOW_PATH}`));
+  console.log(`
+${pc.bold('To finish setting up the GitHub Action:')}
+  1. Run ${pc.cyan('claude setup-token')} and add the token as a repository secret named ${pc.cyan('CLAUDE_CODE_OAUTH_TOKEN')}:
+     ${pc.cyan('gh secret set CLAUDE_CODE_OAUTH_TOKEN')}   (or add ANTHROPIC_API_KEY instead)
+  2. Commit ${CONFIG_FILE} and ${WORKFLOW_PATH}, and push.
+  New feedback issues then turn into pull requests on their own, and replies are tallied as votes.`);
+  return true;
+}
+
+export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string; action?: boolean }) {
+  if (opts.action && existsSync(CONFIG_FILE) && !opts.yes) {
+    writeWorkflow();
+    return;
+  }
   if (existsSync(CONFIG_FILE) && !opts.yes) {
     console.log(pc.yellow(`${CONFIG_FILE} already exists; edit it directly or re-run with --yes to overwrite.`));
     return;
@@ -84,6 +108,8 @@ ${pc.bold('Then, in this repo:')}
   ${pc.cyan('claude')} ${pc.dim('then /login (Claude Code) — or export ANTHROPIC_API_KEY=…')}
   ${pc.cyan('npx peanut-gallery review')}            ${pc.dim('pull → interpret → implement → before/after → PRs')}
 `);
+  if (opts.action) writeWorkflow();
+  else console.log(pc.dim(`Want it to run on its own? ${pc.cyan('npx peanut-gallery init --action')} adds a GitHub Actions workflow.`));
 }
 
 /** `git@github.com:o/r.git`, `https://github.com/o/r(.git)`, `ssh://git@github.com/o/r` → `o/r`. */
