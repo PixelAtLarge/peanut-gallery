@@ -5,7 +5,7 @@ import { LABELS, type Proposal, type ProposalRun } from '@pixelatlarge/peanut-ga
 import { implementProposal } from '../agent.js';
 import { loadConfig, readJson, workPath, writeJson, WORK_DIR, type ResolvedConfig } from '../config.js';
 import { startDevServer, type RunningServer } from '../devserver.js';
-import { addLabels, blobImageUrl, commentOnIssue, createPr, git, type FeedbackIssue } from '../github.js';
+import { addLabels, blobImageUrl, commentOnIssue, createPr, git, updatePrBody, type FeedbackIssue } from '../github.js';
 import { flatten, type FlatAnnotation } from '../interpret.js';
 import { authHint, hasCredentials } from '../llm.js';
 import { auditChangedFiles } from '../policy.js';
@@ -14,6 +14,7 @@ import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { applySummaryMarkdown, jobSummary } from '../ci.js';
+import { expandHeaders, normalizePreview, previewEnabled, productionUrl, waitForPreview } from '../preview.js';
 import { captureShots, renderHtmlToPng, type ShotResult, type ShotTarget } from '../screenshots.js';
 import { pathOf } from './pull.js';
 
@@ -50,6 +51,8 @@ export interface RunRecord extends ProposalRun {
   variantLabel?: string;
   /** Local copy of the compare folder (screenshots + compare.html) in the main checkout. */
   localCompareDir?: string;
+  /** Preview deployment the "after" screenshots came from, when preview is on. */
+  previewUrl?: string;
   /** Labels of shot targets, in order, so variant rounds can line up columns. */
   targetLabels?: string[];
   /** Results of the configured `checks` on this change. */
@@ -290,52 +293,59 @@ export async function runProposal(
   };
 
   // 3. before/after screenshots
-  let summaryRel: string | undefined;
-  if (opts.screenshots !== false) {
+  const outDir = join(wt, WORK_DIR, 'compare', p.id);
+  const prototypeUrl = ctx.issues.find((i) => i.session.annotations.some((a) => p.annotationIds.includes(a.id)))?.session.prototypeUrl;
+  const targets = shotTargets(p, annotations, prototypeUrl);
+  /** Capture before/after, build compare.html + summary.png, and commit them on the branch. */
+  const shoot = async (beforeUrl: string, afterUrl: string, afterHeaders?: Record<string, string>): Promise<string> => {
+    const shot = { ...cfg.screenshot, outlineColor: cfg.resolvedTheme.accent };
+    const b = await captureShots(beforeUrl, targets, outDir, { ...shot, prefix: 'before' });
+    const a = await captureShots(afterUrl, targets, outDir, { ...shot, prefix: 'after', headers: afterHeaders });
+    const pairs: ComparePair[] = targets.map((t, i) => ({
+      label: shotLabel(t, b[i], a[i]),
+      before: relative(outDir, b[i].file),
+      after: relative(outDir, a[i].file),
+    }));
+    writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
+    writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
+    await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));
+    record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after }));
+    record.targetLabels = targets.map((t) => t.label);
+    record.comparePath = relative(wt, join(outDir, 'compare.html'));
+    // keep a local copy so `compare` and `variants` can work without checking out the branch
+    const local = workPath('compare', p.id);
+    rmSync(local, { recursive: true, force: true });
+    cpSync(outDir, local, { recursive: true });
+    record.localCompareDir = relative(root, local);
+    await git(['add', '-f', join(WORK_DIR, 'compare', p.id)], wt);
+    await git(['commit', '-q', '-m', `peanut-gallery: before/after for ${p.id}`], wt);
+    console.log(pc.green(`  ✔ before/after`) + pc.dim(` ${record.comparePath}`));
+    return relative(wt, join(outDir, 'summary.png'));
+  };
+  /** Before from the base branch (or prototypeUrl), after from a dev server in this worktree. */
+  const shootLocally = async (): Promise<string | undefined> => {
     try {
       if (!ctx.before) ctx.before = await resolveBeforeServer(cfg, root, ctx.basePort);
       const after = await startDevServer(cfg.dev!, wt, ctx.basePort + 1 + idx, (s) => console.log(pc.dim(`  ${s}`)));
       try {
-        const prototypeUrl = ctx.issues.find((i) => i.session.annotations.some((a) => p.annotationIds.includes(a.id)))?.session.prototypeUrl;
-        const targets = shotTargets(p, annotations, prototypeUrl);
-        const outDir = join(wt, WORK_DIR, 'compare', p.id);
-        const shot = { ...cfg.screenshot, outlineColor: cfg.resolvedTheme.accent };
-        const b = await captureShots(ctx.before.url, targets, outDir, { ...shot, prefix: 'before' });
-        const a = await captureShots(after.url, targets, outDir, { ...shot, prefix: 'after' });
-        const pairs: ComparePair[] = targets.map((t, i) => ({
-          label: shotLabel(t, b[i], a[i]),
-          before: relative(outDir, b[i].file),
-          after: relative(outDir, a[i].file),
-        }));
-        writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
-        writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
-        await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));
-        record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after }));
-        record.targetLabels = targets.map((t) => t.label);
-        record.comparePath = relative(wt, join(outDir, 'compare.html'));
-        summaryRel = relative(wt, join(outDir, 'summary.png'));
-        // keep a local copy so `compare` and `variants` can work without checking out the branch
-        const local = workPath('compare', p.id);
-        rmSync(local, { recursive: true, force: true });
-        cpSync(outDir, local, { recursive: true });
-        record.localCompareDir = relative(root, local);
-        await git(['add', '-f', join(WORK_DIR, 'compare', p.id)], wt);
-        await git(['commit', '-q', '-m', `peanut-gallery: before/after for ${p.id}`], wt);
-        console.log(pc.green(`  ✔ before/after`) + pc.dim(` ${record.comparePath}`));
+        return await shoot(ctx.before.url, after.url);
       } finally {
         await after.stop();
       }
     } catch (err) {
       console.log(pc.yellow(`  ⚠ screenshots skipped: ${(err as Error).message.split('\n')[0]}`));
+      return undefined;
     }
-  }
+  };
+  const usePreview = previewEnabled(cfg.preview) && opts.pr !== false && opts.screenshots !== false;
+  let summaryRel: string | undefined;
+  if (opts.screenshots !== false && !usePreview) summaryRel = await shootLocally();
 
   // 4. push + PR + comment back
   if (opts.pr !== false) {
     await git(['push', '-u', 'origin', branch, '--force'], wt);
-    const img = summaryRel ? `![before / after](${blobImageUrl(cfg.repo, branch, summaryRel)})\n\n` : '';
-    const body = [
-      `${img}## ${p.title}`,
+    const bodyWith = (img: string, note = '') => [
+      `${img}${note ? `${note}\n\n` : ''}## ${p.title}`,
       `**${supportLine(p)}**`,
       '',
       p.summary,
@@ -355,16 +365,63 @@ export async function runProposal(
       ...annotations.filter((a) => p.annotationIds.includes(a.id)).map((a) => `- #${a.issueNumber}: “${a.text.split('\n')[0]}” _(${a.reviewer})_`),
       '',
       record.comparePath ? `Interactive comparison (slider / toggle): \`${record.comparePath}\` on this branch — \`npx peanut-gallery compare ${p.id}\`` : '',
+      record.previewUrl ? `After screenshots from the preview deployment: ${record.previewUrl}` : '',
       '',
       `Refs ${p.issueNumbers.map((n) => '#' + n).join(', ')}`,
       '',
       `<sub>Generated by peanut-gallery · proposal \`${p.id}\` · effort ${p.effort} · confidence ${(p.confidence * 100).toFixed(0)}%</sub>`,
     ].join('\n');
-    const pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title: opts.variantLabel ? `${p.title} (option ${opts.variantLabel})` : p.title, body, cwd: wt, draft: opts.draft || requiredFailed.length > 0 });
+    const imgFor = (rel?: string) => (rel ? `![before / after](${blobImageUrl(cfg.repo, branch, rel)})\n\n` : '');
+    const title = opts.variantLabel ? `${p.title} (option ${opts.variantLabel})` : p.title;
+    const draft = opts.draft || requiredFailed.length > 0;
+    let pr: { url: string; number: number };
+    if (!usePreview) {
+      pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title, body: bodyWith(imgFor(summaryRel)), cwd: wt, draft });
+      console.log(pc.green(`  ✔ PR ${pr.url}`));
+    } else {
+      // Many hosts only build a preview once there's a pull request, so open it first.
+      pr = await createPr({ repo: cfg.repo, head: branch, base: cfg.baseBranch, title, body: bodyWith('', '> ⏳ Before/after screenshots will appear here once the preview deployment is ready.'), cwd: wt, draft });
+      console.log(pc.green(`  ✔ PR ${pr.url}`));
+      const pv = normalizePreview(cfg.preview);
+      const { headers, missing } = expandHeaders(pv.headers);
+      if (missing.length) console.log(pc.yellow(`  ⚠ preview headers skipped: ${missing.join(', ')} not set in the environment`));
+      const sha = (await git(['rev-parse', 'HEAD'], wt)).trim();
+      const found = await waitForPreview({ repo: cfg.repo, sha, branch, pr: pr.number, preview: pv, headers, log: (m) => console.log(pc.dim(`  ${m}`)) });
+      let note = '';
+      if ('url' in found) {
+        console.log(pc.green(`  ✔ preview ready`) + pc.dim(` ${found.url} (${found.source})`));
+        record.previewUrl = found.url;
+        try {
+          let beforeUrl: string | null = null;
+          if (pv.before !== 'local') {
+            beforeUrl = cfg.prototypeUrl ?? (await productionUrl(cfg.repo, (await git(['rev-parse', cfg.baseBranch])).trim()));
+          }
+          if (!beforeUrl) {
+            if (!ctx.before) ctx.before = await resolveBeforeServer(cfg, root, ctx.basePort);
+            beforeUrl = ctx.before.url;
+          }
+          summaryRel = await shoot(beforeUrl, found.url, headers);
+        } catch (err) {
+          console.log(pc.yellow(`  ⚠ screenshots from the preview failed: ${(err as Error).message.split('\n')[0]}`));
+        }
+      } else {
+        console.log(pc.yellow(`  ⚠ ${found.error}`));
+        if (cfg.dev) {
+          console.log(pc.dim('  taking screenshots from a local dev server instead'));
+          summaryRel = await shootLocally();
+        }
+      }
+      if (summaryRel) {
+        await git(['push', 'origin', branch], wt);
+      } else {
+        note = `> ⚠ No before/after screenshots: ${'error' in found ? found.error : 'capturing them failed'}.`;
+      }
+      await updatePrBody(cfg.repo, pr.number, bodyWith(imgFor(summaryRel), note), wt).catch((err) => console.log(pc.yellow(`  ⚠ couldn't update the PR description: ${(err as Error).message.split('\n')[0]}`)));
+    }
+    const img = imgFor(summaryRel);
     record.prUrl = pr.url;
     record.prNumber = pr.number;
     record.status = 'pr-opened';
-    console.log(pc.green(`  ✔ PR ${pr.url}`));
 
     if (opts.comment !== false) {
       for (const n of p.issueNumbers) {

@@ -352,6 +352,7 @@ describe('running from GitHub Actions', () => {
     expect(y).toContain("contains(github.event.issue.labels.*.name, 'design-proposal')");
     expect(y).toContain('uses: PixelAtLarge/peanut-gallery@v1');
     expect(y).toContain('budget: 3');
+    expect(y).toContain('deployments: read');
     expect(y).toContain('${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
     expect(y).not.toContain('\t');
   });

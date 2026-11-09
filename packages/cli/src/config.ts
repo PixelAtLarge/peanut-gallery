@@ -1,3 +1,4 @@
+import type { PreviewConfig } from './preview.js';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveTheme, type Theme } from '@pixelatlarge/peanut-gallery-core';
@@ -70,6 +71,11 @@ export interface PeanutGalleryConfig {
    * effects you don't want (e.g. a dev server wired to a real backend).
    */
   screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean };
+  /**
+   * Take "after" screenshots from your host's preview deployment of each pull request (Vercel,
+   * Netlify, Cloudflare Pages, Render…) instead of a local dev server. `true` for the defaults.
+   */
+  preview?: PreviewConfig | boolean;
   /** Branch prefix for proposals. */
   branchPrefix?: string;
   /** Labels (override only if you changed them in the widget). */

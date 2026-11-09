@@ -66,11 +66,21 @@ export async function captureShots(
   baseUrl: string,
   targets: ShotTarget[],
   outDir: string,
-  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string; replayClicks?: boolean },
+  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string; replayClicks?: boolean; headers?: Record<string, string> },
 ): Promise<ShotResult[]> {
   mkdirSync(outDir, { recursive: true });
   const browser = await launch();
   const ctx = await browser.newContext({ viewport: { width: opts.width, height: opts.height }, deviceScaleFactor: 2 });
+  if (opts.headers && Object.keys(opts.headers).length) {
+    // Only the site being captured gets these (e.g. a preview's protection-bypass secret), never fonts or CDNs.
+    const origin = new URL(baseUrl).origin;
+    const extra = opts.headers;
+    await ctx.route('**/*', (route) => {
+      const req = route.request();
+      if (req.url().startsWith(origin + '/') || req.url() === origin) return route.continue({ headers: { ...req.headers(), ...extra } });
+      return route.continue();
+    });
+  }
   const results: ShotResult[] = [];
   try {
     const page = await ctx.newPage();

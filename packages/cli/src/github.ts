@@ -167,6 +167,10 @@ export async function createPr(opts: { repo: string; head: string; base: string;
   }
 }
 
+export async function updatePrBody(repo: string, pr: number, body: string, cwd?: string): Promise<void> {
+  await ghApi('PATCH', `repos/${repo}/pulls/${pr}`, { body }, cwd);
+}
+
 /** Let the workflow token open pull requests (the "Allow GitHub Actions to create…" setting). */
 export async function allowActionsPullRequests(repo: string): Promise<void> {
   await gh(['api', '-X', 'PUT', `repos/${repo}/actions/permissions/workflow`, '-F', 'can_approve_pull_request_reviews=true']);
