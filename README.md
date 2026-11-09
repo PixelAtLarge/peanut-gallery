@@ -191,14 +191,49 @@ Commands run in the change's worktree with `PEANUT_GALLERY_CHANGED_FILES` (newli
 
 | command | does |
 | --- | --- |
-| `pull [--all]` | Fetch issues labelled `peanut-gallery:feedback`, parse the embedded session → `.peanut-gallery/feedback.json` |
+| `init [--action]` | Write `peanut-gallery.config.json` and create the labels. `--action` also adds the GitHub Actions workflow (on its own if you're already set up). |
+| `pull [--all] [--new] [--issue n…]` | Fetch issues labelled `peanut-gallery:feedback`, parse the embedded session → `.peanut-gallery/feedback.json`. `--new` skips feedback that already has a proposal; `--issue` limits it to certain issues. |
 | `interpret` | Claude groups comments into independent proposals (title, summary, agent spec, affected pages/elements, effort, confidence) → `.peanut-gallery/proposals.json`. Edit this file if you disagree. |
 | `apply [--only id…] [--draft] [--no-pr] [--no-screenshots] [--no-comment] [--include-contested]` | Per proposal: git worktree from base → Agent SDK implements (edits auto-accepted; shell limited to npm/npx/pnpm/yarn) → commit → start the dev server in the worktree → Playwright before/after (close-ups of each annotated element + full page) → `compare.html` (side-by-side / slider / toggle) + `summary.png` committed on the branch → push → PR with the image → comment on each source issue asking for a vote. |
 | `variants <id> [-n 1–3] [--note "…"]` | Not happy with the before/after? Generate 1–3 genuinely different directions for the same proposal (Claude is told what was already tried and your note), build each on its own branch + PR, and post one combined **before / A / B / C** image to the issue. Reviewers reply with a letter; `votes` tallies it. Re-run with a new note for another round (labels become A2, B2…). |
 | `decide <id> <n>` | Resolve a contested proposal by picking one of its positions, then `apply --only <id>`. |
-| `review [-y] [--dry-run]` | The three above in sequence with a confirmation. |
-| `votes [--label]` | Tallies 👍/❤️/🚀 (after) vs 👎/😕 (before) on the comparison comments plus replies ("after", "keep the original", …). `--label` applies `peanut-gallery:accepted` / `rejected` and comments on the PR. |
+| `review [-y] [--new] [--issue n…] [--dry-run]` | The three above in sequence with a confirmation. |
+| `votes [--label] [--local]` | Tallies 👍/❤️/🚀 (after) vs 👎/😕 (before) on the comparison comments plus replies ("after", "keep the original", …). It finds comparisons from your local history and from the comments on GitHub, so it works on any machine. `--label` applies `peanut-gallery:accepted` / `rejected` and comments on the PR, once per verdict. |
 | `compare <id>` | Opens the interactive before/after page for a proposal locally. |
+
+### Run it automatically (GitHub Action)
+
+Let the loop run without anyone's laptop:
+
+```bash
+npx peanut-gallery init --action      # writes .github/workflows/peanut-gallery.yml
+claude setup-token                     # then: gh secret set CLAUDE_CODE_OAUTH_TOKEN
+```
+
+Commit `peanut-gallery.config.json` and the workflow. From then on:
+
+- **New feedback** (an issue labelled `peanut-gallery:feedback`) is turned into pull requests with before/after screenshots, and the comparison is posted back on the issue.
+- **Replies** on an issue with a proposal are tallied as votes, and the PR gets a verdict when it changes.
+- **Every 6 hours**, and whenever you run it from the Actions tab, it catches anything missed and tallies votes.
+
+Or add the step to a workflow of your own:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: PixelAtLarge/peanut-gallery@v0
+  with:
+    claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # or anthropic-api-key
+    budget: 5          # most to spend on the coding agent per run, in USD
+    # mode: auto       # review, votes or both; auto picks from the event
+    # install-command: auto   # your install command, for the dev server used in screenshots
+```
+
+Good to know:
+
+- **Who can start a run:** the workflow only acts on issues with the feedback label, and only people who can triage your repo can add labels. The relay adds the label with its own token. Replies from anyone are counted as votes, but votes never start the coding agent.
+- **Your other checks:** pull requests opened with the default `GITHUB_TOKEN` don't start your other workflows, such as CI. Pass a personal access token or a GitHub App token as `github-token` if you need them to.
+- **Matching versions:** the action builds the CLI from its own version of this repository, so the two always match.
+- **Screenshots in CI:** they work as they do locally. The runner installs your dependencies and starts your dev server, so your app needs to start without production secrets. Run history is cached between runs, so cost estimates keep improving.
 
 ### Agreement and conflict
 

@@ -293,3 +293,66 @@ describe('replayed clicks', () => {
   });
 });
 
+
+describe('running from GitHub Actions', () => {
+  it('picks only new feedback, or the named issue', async () => {
+    const { selectIssues } = await import('./commands/pull.js');
+    const mk = (number: number, labels: string[]) => ({ number, title: '', url: '', author: '', createdAt: '', session: { id: 's', prototypeUrl: '', annotations: [], createdAt: '' }, labels });
+    const all = [mk(1, ['peanut-gallery:feedback']), mk(2, ['peanut-gallery:feedback', 'peanut-gallery:proposal']), mk(3, ['peanut-gallery:feedback', 'peanut-gallery:accepted'])];
+    const handled = ['peanut-gallery:proposal', 'peanut-gallery:accepted', 'peanut-gallery:rejected'];
+    expect(selectIssues(all, {}, handled).map((i) => i.number)).toEqual([1, 2, 3]);
+    expect(selectIssues(all, { new: true }, handled).map((i) => i.number)).toEqual([1]);
+    expect(selectIssues(all, { issue: ['#2'] }, handled).map((i) => i.number)).toEqual([2]);
+    expect(selectIssues(all, { issue: ['2'], new: true }, handled)).toEqual([]);
+  });
+
+  it('rebuilds proposals and option rounds from the comments posted on an issue', async () => {
+    const { runsFromComments, mergeRuns } = await import('./commands/votes.js');
+    const single = {
+      id: 11, author: 'bot', createdAt: '2026-11-08T00:00:00Z', url: 'https://github.com/o/r/issues/5#c11',
+      body: '### Proposed update: Make Pay primary\n_requested by ada_\n\nPull request: https://github.com/o/r/pull/9\n\n<sub>peanut-gallery proposal `pr_abc`</sub>',
+    };
+    const options = {
+      id: 12, author: 'bot', createdAt: '2026-11-08T01:00:00Z', url: 'https://github.com/o/r/issues/5#c12',
+      body: '### 2 options for: Make Pay primary\n_requested by ada_\n\n![before / options](x)\n\n**A** — Lighter · https://github.com/o/r/pull/10\n**B** — Bolder: full width · https://github.com/o/r/pull/11\n\n**Which one?** Reply with the letter\n\n<sub>peanut-gallery proposal `pr_abc` · options round 1</sub>',
+    };
+    const reply = { id: 13, author: 'ada', createdAt: '', url: '', body: 'After please' };
+    const runs = runsFromComments(5, [single, options, reply]);
+    expect(runs.map((r) => [r.proposalId, r.prNumber, r.variantLabel ?? null])).toEqual([
+      ['pr_abc', 9, null],
+      ['pr_abc_a', 10, 'A'],
+      ['pr_abc_b', 11, 'B'],
+    ]);
+    expect(runs[0].title).toBe('Make Pay primary');
+    expect(runs[2].title).toBe('Make Pay primary — Bolder: full width');
+    expect(runs[1].variantOf).toBe('pr_abc');
+    expect(runs[0].issueCommentIds).toEqual([{ issue: 5, commentId: 11, url: single.url }]);
+    // Local history wins; GitHub fills in what it lacks.
+    const local = [{ ...runs[0], title: 'local title', issueCommentIds: [] }];
+    const merged = mergeRuns(local as never, runs);
+    expect(merged).toHaveLength(3);
+    expect(merged[0].title).toBe('local title');
+    expect(merged[0].issueCommentIds.map((c) => c.commentId)).toEqual([11]);
+  });
+
+  it('posts a verdict once, and again only when it changes', async () => {
+    const { lastVerdict } = await import('./commands/votes.js');
+    const c = (v: string, key = 'pr_abc') => ({ body: `✅ …\n\n<!-- peanut-gallery:verdict ${key} ${v} -->` });
+    expect(lastVerdict([], 'pr_abc')).toBeNull();
+    expect(lastVerdict([c('after')], 'pr_abc')).toBe('after');
+    expect(lastVerdict([c('after'), c('before')], 'pr_abc')).toBe('before');
+    expect(lastVerdict([c('B', 'pr_abc:options')], 'pr_abc')).toBeNull();
+    expect(lastVerdict([c('B', 'pr_abc:options')], 'pr_abc:options')).toBe('B');
+  });
+
+  it('writes a workflow that gates on the configured labels', async () => {
+    const { workflowYaml } = await import('./workflow.js');
+    const y = workflowYaml({ feedbackLabel: 'design-feedback', proposalLabel: 'design-proposal', budget: 3, ref: 'v1' });
+    expect(y).toContain("github.event.label.name == 'design-feedback'");
+    expect(y).toContain("contains(github.event.issue.labels.*.name, 'design-proposal')");
+    expect(y).toContain('uses: PixelAtLarge/peanut-gallery@v1');
+    expect(y).toContain('budget: 3');
+    expect(y).toContain('${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
+    expect(y).not.toContain('\t');
+  });
+});

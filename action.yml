@@ -1,0 +1,142 @@
+name: Peanut Gallery
+description: Turn reviewer feedback on your prototype or web app into pull requests with before/after screenshots, then tally the votes.
+author: PixelAtLarge
+branding:
+  icon: message-circle
+  color: green
+
+inputs:
+  claude-code-oauth-token:
+    description: Token from `claude setup-token`, so runs use your Claude subscription. Pass it from a secret. Set this or anthropic-api-key.
+    required: false
+  anthropic-api-key:
+    description: An Anthropic API key, as an alternative to the OAuth token. Pass it from a secret.
+    required: false
+  github-token:
+    description: >-
+      Token used to read issues, push branches, open pull requests and comment. The default token works, but
+      pull requests it opens don't start your other workflows (such as CI); pass a personal access token or a
+      GitHub App token if you need that.
+    default: ${{ github.token }}
+  mode:
+    description: >-
+      What to run. auto (default) picks from the event: a new feedback issue runs review on that issue, a reply on
+      an issue with a proposal tallies votes, and a schedule or manual run does both. Or set review, votes or both.
+    default: auto
+  budget:
+    description: Most to spend on the coding agent in one run, in US dollars.
+    default: '5'
+  working-directory:
+    description: Folder containing peanut-gallery.config.json, if not the repository root.
+    default: '.'
+  install-command:
+    description: >-
+      How to install your project's dependencies, which the dev server needs for screenshots. auto picks npm, pnpm or
+      yarn from your lockfile; set your own command, or an empty string to skip.
+    default: auto
+  node-version:
+    description: Node.js version.
+    default: '22'
+
+outputs:
+  mode:
+    description: What ran (review, votes or both).
+    value: ${{ steps.plan.outputs.mode }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Decide what to run
+      id: plan
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ISSUE: ${{ github.event.issue.number }}
+      run: |
+        mode="$MODE"
+        if [ "$mode" = auto ]; then
+          case "$GITHUB_EVENT_NAME" in
+            issue_comment) mode=votes ;;
+            issues) mode=review ;;
+            *) mode=both ;;
+          esac
+        fi
+        case "$mode" in review|votes|both) ;; *) echo "::error::mode must be auto, review, votes or both (got '$MODE')"; exit 1 ;; esac
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        if [ "$GITHUB_EVENT_NAME" = issues ] && [ -n "$ISSUE" ]; then
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "Peanut Gallery: $mode (issue #$ISSUE)"
+        else
+          echo "Peanut Gallery: $mode"
+        fi
+
+    # The CLI comes from this action's own version of the repository, so the action and the CLI always match.
+    - name: Build peanut-gallery
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --no-audit --no-fund --loglevel=error && npm run build --silent
+
+    - name: Install project dependencies
+      if: steps.plan.outputs.mode != 'votes' && inputs.install-command != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INSTALL: ${{ inputs.install-command }}
+      run: |
+        if [ "$INSTALL" != auto ]; then eval "$INSTALL"; exit 0; fi
+        if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
+        elif [ -f yarn.lock ]; then corepack enable && yarn install --immutable 2>/dev/null || yarn install --frozen-lockfile
+        elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund
+        elif [ -f package.json ]; then npm install --no-audit --no-fund
+        else echo "No package.json; nothing to install."
+        fi
+
+    - name: Install Chromium for screenshots
+      if: steps.plan.outputs.mode != 'votes'
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npx playwright install --with-deps chromium
+
+    # Past runs make cost estimates better and let votes find proposals posted earlier.
+    - name: Restore run history
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/.peanut-gallery/runs.json
+        key: peanut-gallery-runs-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: peanut-gallery-runs-
+
+    - name: Run Peanut Gallery
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        PG_CLI: ${{ github.action_path }}/packages/cli/dist/cli.js
+        MODE: ${{ steps.plan.outputs.mode }}
+        ISSUE: ${{ steps.plan.outputs.issue }}
+        BUDGET: ${{ inputs.budget }}
+      run: |
+        [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+        [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+        if [ ! -f peanut-gallery.config.json ]; then
+          echo "::error::No peanut-gallery.config.json in $(pwd). Run 'npx peanut-gallery init' and commit the file."
+          exit 1
+        fi
+        if [ "$MODE" != votes ] && [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]; then
+          echo "::error::Add a CLAUDE_CODE_OAUTH_TOKEN secret (from 'claude setup-token') or an ANTHROPIC_API_KEY secret, and pass it to the action."
+          exit 1
+        fi
+        git config user.name "peanut-gallery[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        pg() { node "$PG_CLI" "$@"; }
+        if [ "$MODE" = review ] || [ "$MODE" = both ]; then
+          pg review --yes --new ${ISSUE:+--issue "$ISSUE"} --budget "$BUDGET"
+        fi
+        if [ "$MODE" = votes ] || [ "$MODE" = both ]; then
+          pg votes --label
+        fi
