@@ -170,13 +170,14 @@
   .pills button[aria-pressed="true"] { background: var(--forest); border-color: var(--forest); color: #fff; }
   .vote button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
   .slider { position: relative; overflow: hidden; border-radius: 12px; border: 1px solid var(--line); background: #f7f7f9; touch-action: pan-y; user-select: none; cursor: ew-resize; }
-  .slider img { width: 100%; height: auto; }
+  .slider img { width: 100%; height: auto; -webkit-user-drag: none; }
   .slider .after { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--cut, 50%)); }
-  .slider .handle { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); width: 3px; margin-left: -1.5px; background: var(--accent); pointer-events: none; }
+  .slider .handle { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); width: 3px; margin-left: -1.5px; background: var(--accent); outline: none; }
+  .slider .handle:focus-visible::after { outline: 3px solid var(--forest); outline-offset: 3px; }
+  .slider.dragging .handle::after { transform: translate(-50%, -50%) scale(1.08); }
   .slider .handle::after { content: "⇆"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--ink); display: grid; place-items: center; font-weight: 700; box-shadow: 0 4px 12px rgba(21, 42, 74, .3); }
   .slider .tagl, .slider .tagr { position: absolute; top: 10px; font: 700 11px/1 var(--mono); letter-spacing: .08em; padding: 6px 9px; border-radius: 7px; background: rgba(255, 255, 255, .94); }
   .slider .tagl { left: 10px; color: var(--muted); } .slider .tagr { right: 10px; color: var(--primary); }
-  .range { width: 100%; accent-color: var(--forest); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .vote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .reply[hidden] { display: none; }
@@ -349,13 +350,11 @@
             <button type="button" data-view="page" aria-pressed="false">Whole page</button>
           </div>
           <div class="slider" id="slider">
-            <img id="img-before" src="assets/pr35-before-el1.png" alt="Before: a plain outlined Pay now button next to Back" width="1120" height="480">
-            <img id="img-after" class="after" src="assets/pr35-after-el1.png" alt="After: a filled blue button reading Pay $150.50" width="1120" height="480">
-            <span class="handle" aria-hidden="true"></span>
+            <img id="img-before" draggable="false" src="assets/pr35-before-el1.png" alt="Before: a plain outlined Pay now button next to Back" width="1120" height="480">
+            <img id="img-after" class="after" draggable="false" src="assets/pr35-after-el1.png" alt="After: a filled blue button reading Pay $150.50" width="1120" height="480">
+            <span class="handle" id="cut" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Half before, half after"></span>
             <span class="tagl">BEFORE</span><span class="tagr">AFTER</span>
           </div>
-          <label class="sr" for="cut">Before and after divider</label>
-          <input class="range" id="cut" type="range" min="0" max="100" value="50">
         </div>
         <div>
           <p class="caption" style="margin-bottom:10px">Reviewers answer on the issue in plain words, or with 👍 / 👎. Which do you prefer?</p>
