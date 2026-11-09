@@ -32,6 +32,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  deployments: read # to find preview deployments, if you use "preview"
 
 concurrency:
   group: peanut-gallery
