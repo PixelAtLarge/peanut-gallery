@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: PixelAtLarge/peanut-gallery@${opts.ref ?? 'v0'}
         with:
           claude-code-oauth-token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -1,22 +1,31 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import pc from 'picocolors';
 import { LABELS } from '@pixelatlarge/peanut-gallery-core';
 import { CONFIG_FILE, ensureWorkDir, type PeanutGalleryConfig } from '../config.js';
-import { ensureLabels, gh, git } from '../github.js';
+import { actionsPrHint, allowActionsPullRequests, ensureLabels, gh, git } from '../github.js';
 import { detectDesignSystem } from '../design.js';
 import { WORKFLOW_PATH, workflowYaml } from '../workflow.js';
 
 /** Write the GitHub Actions workflow (never overwrites an existing one). */
-export function writeWorkflow(): boolean {
+export async function writeWorkflow(repo?: string): Promise<boolean> {
   if (existsSync(WORKFLOW_PATH)) {
     console.log(pc.yellow(`${WORKFLOW_PATH} already exists; left as is.`));
-    return false;
+  } else {
+    mkdirSync(dirname(WORKFLOW_PATH), { recursive: true });
+    writeFileSync(WORKFLOW_PATH, workflowYaml());
+    console.log(pc.green(`✔ wrote ${WORKFLOW_PATH}`));
   }
-  mkdirSync(dirname(WORKFLOW_PATH), { recursive: true });
-  writeFileSync(WORKFLOW_PATH, workflowYaml());
-  console.log(pc.green(`✔ wrote ${WORKFLOW_PATH}`));
+  if (repo) {
+    // Repositories block the workflow token from opening pull requests by default.
+    try {
+      await allowActionsPullRequests(repo);
+      console.log(pc.green(`✔ allowed GitHub Actions to open pull requests in ${repo}`));
+    } catch {
+      console.log(pc.yellow(actionsPrHint(repo).split('\n').slice(0, 3).join('\n')));
+    }
+  }
   console.log(`
 ${pc.bold('To finish setting up the GitHub Action:')}
   1. Run ${pc.cyan('claude setup-token')} and add the token as a repository secret named ${pc.cyan('CLAUDE_CODE_OAUTH_TOKEN')}:
@@ -26,9 +35,17 @@ ${pc.bold('To finish setting up the GitHub Action:')}
   return true;
 }
 
+function configRepo(): string | undefined {
+  try {
+    return (JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) as PeanutGalleryConfig).repo;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function initCommand(opts: { yes?: boolean; repo?: string; prototypeUrl?: string; dev?: string; action?: boolean }) {
   if (opts.action && existsSync(CONFIG_FILE) && !opts.yes) {
-    writeWorkflow();
+    await writeWorkflow(configRepo());
     return;
   }
   if (existsSync(CONFIG_FILE) && !opts.yes) {
@@ -108,7 +125,7 @@ ${pc.bold('Then, in this repo:')}
   ${pc.cyan('claude')} ${pc.dim('then /login (Claude Code) — or export ANTHROPIC_API_KEY=…')}
   ${pc.cyan('npx peanut-gallery review')}            ${pc.dim('pull → interpret → implement → before/after → PRs')}
 `);
-  if (opts.action) writeWorkflow();
+  if (opts.action) await writeWorkflow(repo);
   else console.log(pc.dim(`Want it to run on its own? ${pc.cyan('npx peanut-gallery init --action')} adds a GitHub Actions workflow.`));
 }
 
