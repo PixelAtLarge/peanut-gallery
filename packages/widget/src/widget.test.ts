@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PeanutGalleryWidget, normalizePageUrl } from './widget.js';
+import { MAX_STEPS } from '@pixelatlarge/peanut-gallery-core';
 
 // Node 25+ ships its own Web Storage `localStorage` global, which hides jsdom's in this
 // environment (and has no methods unless Node is given --localstorage-file). Use jsdom's.
@@ -205,6 +206,66 @@ describe('widget', () => {
     await frame();
   });
 
+  it('records typing, options and Enter; private fields keep no value', async () => {
+    document.body.innerHTML = `<main>
+      <input type="email" aria-label="Email" data-testid="email">
+      <form><input placeholder="Promo code" data-testid="promo"><button data-testid="apply">Apply</button></form>
+      <label>Size <select data-testid="size"><option>Small</option><option>Large</option></select></label>
+      <p data-testid="result">Applied</p></main>`;
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna' }).mount();
+    const sr = shadow(w);
+    const $ = <T extends Element>(id: string) => document.querySelector(`[data-testid=${id}]`) as unknown as T;
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+    const type = (el: HTMLInputElement, text: string) => {
+      for (const ch of text) {
+        el.value += ch;
+        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      }
+    };
+    click($('email'));
+    type($('email'), 'anna@secret.example');
+    click($('promo'));
+    type($('promo'), 'PLANTS10');
+    $<HTMLInputElement>('promo').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true }));
+    // What browsers do next: "click" the form's submit button (detail 0). Not a step of its own.
+    $('apply').dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, detail: 0 }));
+    click($('size'));
+    $<HTMLSelectElement>('size').value = 'Large';
+    $('size').dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    $('result').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+    click($('result'));
+    (sr.querySelector('textarea') as HTMLTextAreaElement).value = 'Show the new total';
+    (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    const [n] = w.getAnnotations();
+    expect(n.steps?.map((s) => [s.action ?? 'click', s.field, s.value, s.masked])).toEqual([
+      ['type', 'Email', undefined, true],
+      ['type', 'Promo code', 'PLANTS10', undefined],
+      ['enter', 'Promo code', undefined, undefined],
+      ['select', 'Size', 'Large', undefined],
+    ]);
+    expect(JSON.stringify(w.getAnnotations())).not.toContain('secret');
+    w.destroy();
+  });
+
+  it('keeps clicks only when recordTyping is false', async () => {
+    document.body.innerHTML = `<main><input placeholder="Search" data-testid="q"><p data-testid="r">Results</p></main>`;
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', recordTyping: false }).mount();
+    const sr = shadow(w);
+    const q = document.querySelector('[data-testid=q]') as HTMLInputElement;
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, clientX: 5, clientY: 5 }));
+    click(q);
+    q.value = 'lamp';
+    q.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    click(document.querySelector('[data-testid=r]')!);
+    (sr.querySelector('textarea') as HTMLTextAreaElement).value = 'x';
+    (sr.querySelector('.pg-composer .pg-primary') as HTMLButtonElement).click();
+    expect(w.getAnnotations()[0].steps?.map((s) => s.action ?? 'click')).toEqual(['click']);
+    expect(JSON.stringify(w.getAnnotations())).not.toContain('lamp');
+    w.destroy();
+  });
+
   it('records the clicks that led to a note (not the note click itself), reset on navigation', async () => {
     const start = location.pathname;
     document.body.innerHTML = `<main><h1>Cart</h1><button data-testid="remove">Remove</button><div id="slot"></div></main>`;
@@ -231,9 +292,9 @@ describe('widget', () => {
     addNote(document.querySelector('h1')!, 'Bigger heading');
     expect(w.getAnnotations()[1].steps).toBeUndefined();
 
-    for (let i = 0; i < 8; i++) click(document.querySelector('h1')!);
+    for (let i = 0; i < 12; i++) click(document.querySelector('h1')!);
     addNote(document.querySelector('h1')!, 'Again');
-    expect(w.getAnnotations()[2].steps).toHaveLength(5);
+    expect(w.getAnnotations()[2].steps).toHaveLength(MAX_STEPS);
     w.destroy();
     history.replaceState(null, '', start);
   });

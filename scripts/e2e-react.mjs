@@ -85,7 +85,7 @@ if (sh('git', ['status', '--porcelain', '--untracked-files=no'])) {
   git('commit', '-q', '-m', 'React example app for peanut-gallery e2e');
   sh('git', ['push', '-q', '-u', 'origin', `HEAD:${BRANCH}`]);
 }
-check(`React app is on the ${BRANCH} branch, running the widget just built`, existsSync('src/pages/Cart.jsx') && existsSync('node_modules/vite') && installed.includes('peanut-gallery:locationchange') && installed.includes('recordStep') && existsSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json') && JSON.parse(readFileSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json', 'utf8')).version === JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8')).version);
+check(`React app is on the ${BRANCH} branch, running the widget just built`, existsSync('src/pages/Cart.jsx') && existsSync('node_modules/vite') && installed.includes('peanut-gallery:locationchange') && installed.includes('recordStep') && installed.includes('recordInput') && existsSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json') && JSON.parse(readFileSync('node_modules/@pixelatlarge/peanut-gallery-core/package.json', 'utf8')).version === JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8')).version);
 
 const DEV = 'npx vite --port {port} --strictPort --host 127.0.0.1';
 sh('node', [CLI, 'init', '--yes', '--repo', SANDBOX, '--prototype-url', '', '--dev', DEV]);
@@ -162,6 +162,18 @@ await addNote('[data-testid="pay"]', 'Make this the primary button and show the 
 await settle();
 check('a note on the new route pins to its element', (await pins()).length === 1 && await pinOn((await pins())[0], '[data-testid="pay"]'));
 
+// Typing: an email (private, so never recorded), then a promo code and Enter.
+const PRIVATE_EMAIL = 'anna.reviewer@private.invalid';
+await page.locator('[data-testid="email"]').click();
+await page.locator('[data-testid="email"]').pressSequentially(PRIVATE_EMAIL, { delay: 5 });
+await page.locator('[data-testid="promo"]').click();
+await page.locator('[data-testid="promo"]').pressSequentially('PLANTS10', { delay: 5 });
+await page.locator('[data-testid="promo"]').press('Enter');
+await page.locator('[data-testid="promo-applied"]').waitFor();
+await addNote('[data-testid="promo-applied"]', 'Show how much I saved and the new total, not just the percentage.', 'copy');
+await settle();
+check('a note on a message that only appears after typing pins to it', (await pins()).length === 2 && await pinOn((await pins())[1], '[data-testid="promo-applied"]'));
+
 await page.locator('[data-testid="nav-cart"]').click();
 await settle();
 const whileLoading = (await pins()).length;
@@ -179,9 +191,11 @@ await browser.close();
 stopVite();
 check('no errors in the app while reviewing', errors.length === 0, errors.join(' | '));
 const paths = session.annotations.map((a) => new URL(a.pageUrl).pathname);
-check('session has 3 notes with the right route on each', session.annotations.length === 3 && paths.join(',') === '/,/,/checkout', paths.join(', '));
-const stepsOf = (s) => s.annotations.map((a) => (a.steps ?? []).map((st) => st.textFingerprint));
-check('the modal note carries the click that opened it (and only that)', JSON.stringify(stepsOf(session)) === JSON.stringify([[], ['Remove'], []]), JSON.stringify(stepsOf(session)));
+check('session has 4 notes with the right route on each', session.annotations.length === 4 && paths.join(',') === '/,/,/checkout,/checkout', paths.join(', '));
+const stepsOf = (s) => s.annotations.map((a) => (a.steps ?? []).map((st) => (st.action && st.action !== 'click' ? `${st.action}:${st.field}:${st.masked ? '•' : st.value ?? ''}` : st.textFingerprint)));
+check('the modal note carries the click that opened it (and only that)', JSON.stringify(stepsOf(session)[1]) === JSON.stringify(['Remove']) && !stepsOf(session)[0].length && !stepsOf(session)[2].length, JSON.stringify(stepsOf(session)));
+check('the promo note carries the typing: email masked, code and Enter kept', JSON.stringify(stepsOf(session)[3]) === JSON.stringify(['type:Email:•', 'type:Promo code:PLANTS10', 'enter:Promo code:']), JSON.stringify(stepsOf(session)[3]));
+check('the typed email is nowhere in the session', !JSON.stringify(session).includes(PRIVATE_EMAIL) && !JSON.stringify(session).includes('private.invalid'));
 session.author = 'e2e-reviewer';
 
 // ── 3. relay → issue → pull ───────────────────────────────────────────────────
@@ -206,25 +220,27 @@ for (let i = 0; i < 6 && !ours; i++) {
   sh('node', [CLI, 'pull']);
   ours = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8')).find((x) => x.number === filed.issueNumber);
 }
-check('pull parsed the issue back into a session, clicks included', ours?.session.annotations.length === 3 && JSON.stringify(stepsOf(ours.session)) === JSON.stringify(stepsOf(session)));
+check('pull parsed the issue back into a session, steps included', ours?.session.annotations.length === 4 && JSON.stringify(stepsOf(ours.session)) === JSON.stringify(stepsOf(session)));
 const issueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}`)).body;
-check('the issue tells humans how to reach the modal note', issueBody.includes('Reached by clicking:** “Remove”'));
+check('the issue tells humans how to reach the modal note', issueBody.includes('Reached by:** clicking “Remove”'));
+check('…and the promo note, without the email', issueBody.includes('Reached by:** filling in “Email” → typing “PLANTS10” into “Promo code” → pressing Enter') && !issueBody.includes('private.invalid'));
 
 // ── 4. interpret ──────────────────────────────────────────────────────────────
 const lib = await import(join(ROOT, 'packages/cli/dist/index.js'));
 const flat = lib.flatten([ours]);
 const byText = (t) => flat.find((a) => a.text.includes(t));
-const [photo, modal, pay] = [byText('photo'), byText('which plant'), byText('primary button')];
+const [photo, modal, pay, promo] = [byText('photo'), byText('which plant'), byText('primary button'), byText('how much I saved')];
 const fakeClient = { messages: { create: async () => ({ content: [{ type: 'text', text: JSON.stringify({
   proposals: [
     { title: 'Make “Pay now” the primary action with the total', summary: 'Primary style on the pay button, with the amount on it.', instructions: 'In src/pages/Checkout.jsx give the pay button a .btn-primary modifier and the label "Pay $104.00"; define .btn-primary in src/styles/app.css with tokens.', annotationIds: [pay.id], focusAnchorIds: [pay.id], effort: 'small', confidence: 0.9 },
+    { title: 'Say what the promo code saves', summary: 'The applied message shows the amount saved.', instructions: 'In src/pages/Checkout.jsx change the promo-applied message to "{applied} applied: you save {money(subtotal - total)}".', annotationIds: [promo.id], focusAnchorIds: [promo.id], effort: 'small', confidence: 0.85 },
     { title: 'Name the plant in the remove dialog', summary: 'Dialog title says which plant is being removed.', instructions: 'In src/pages/Cart.jsx pass title={`Remove ${removing.name}?`} to ConfirmDialog.', annotationIds: [modal.id], focusAnchorIds: [modal.id], effort: 'small', confidence: 0.85 },
   ],
   skipped: [{ annotationId: photo.id, reason: 'needs product photos (deferred for the e2e run)' }],
 }) }] }) } };
 const { proposals } = await lib.interpret(flat, REAL_AI ? { model: cfg.models?.interpret ?? 'claude-haiku-5-5' } : { model: 'stand-in', client: fakeClient });
 writeFileSync('.peanut-gallery/proposals.json', JSON.stringify(proposals, null, 2));
-check('interpret proposed changes for the pay button and the dialog', [pay, modal].every((a) => proposals.some((p) => p.annotationIds.includes(a.id))), proposals.map((p) => p.title).join(' | '));
+check('interpret proposed changes for the pay button, the dialog and the promo message', [pay, modal, promo].every((a) => proposals.some((p) => p.annotationIds.includes(a.id))), proposals.map((p) => p.title).join(' | '));
 
 // ── 5. apply: worktrees on the branch → Vite in each → screenshots → PRs ──────
 const edit = (cwd, file, from, to) => {
@@ -234,7 +250,9 @@ const edit = (cwd, file, from, to) => {
   writeFileSync(p, src.replace(from, to));
 };
 const fakeImplement = async (p, anns, { cwd }) => {
-  if (/pay/i.test(p.title)) {
+  if (/promo/i.test(p.title)) {
+    edit(cwd, 'src/pages/Checkout.jsx', '{applied} applied: 10% off', '{applied} applied: you save {money(subtotal - total)}');
+  } else if (/pay/i.test(p.title)) {
     edit(cwd, 'src/pages/Checkout.jsx', '<button className="btn" data-testid="pay">Pay now</button>', '<button className="btn btn-primary" data-testid="pay">Pay {money(total)}</button>');
     edit(cwd, 'src/styles/app.css', '.btn-quiet {', '.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }\n.btn-quiet {');
   } else {
@@ -251,7 +269,7 @@ const payRun = runFor(pay) ?? runs[0];
 const modalRun = runFor(modal);
 const shotFor = (run, ann) => run?.screenshots?.find((s) => s.label.includes(ann.anchor.textFingerprint.slice(0, 20))) ?? run?.screenshots?.[0];
 for (const r of runs) console.log(`   ${r.proposalId}: ${r.status ?? ''} ${r.branch ?? ''} ${r.prUrl ?? r.error ?? ''}`);
-check('each change got its own branch and PR against the app branch', runs.length >= 2 && runs.every((r) => r.prUrl), runs.map((r) => r.prUrl).join(' , '));
+check('each change got its own branch and PR against the app branch', runs.length >= 3 && runs.every((r) => r.prUrl), runs.map((r) => r.prUrl).join(' , '));
 const prBase = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}`)).base.ref;
 check(`PRs target ${BRANCH}, not main`, prBase === BRANCH, prBase);
 check('Vite ran in both worktrees (before + after screenshots)', runs.every((r) => r.screenshots?.length > 0), runs.map((r) => `${r.screenshots?.length ?? 0} pairs`).join(', '));
@@ -267,6 +285,13 @@ const prFiles = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}/
 check('PR contains the source change and its comparison', prFiles.some((f) => f.startsWith('src/')) && prFiles.some((f) => f.endsWith('summary.png')), prFiles.join(', '));
 const modalShot = shotFor(modalRun, modal);
 check('modal change: clicks replayed, close-up of the dialog title before and after', modalShot && /after clicking “Remove”/.test(modalShot.label) && shotWidth(modalShot.before, modalRun) > 0 && shotWidth(modalShot.before, modalRun) < 1280 && shotWidth(modalShot.after, modalRun) < 1280, `${modalShot?.label} · ${shotWidth(modalShot?.before, modalRun)}px / ${shotWidth(modalShot?.after, modalRun)}px wide`);
+const promoRun = runFor(promo);
+const promoShot = shotFor(promoRun, promo);
+check('promo change: typing replayed (stand-in email), close-up of the message before and after', promoShot && promoShot.label.includes('after filling in “Email” → typing “PLANTS10” into “Promo code” → pressing Enter') && shotWidth(promoShot.before, promoRun) > 0 && shotWidth(promoShot.before, promoRun) < 1280 && shotWidth(promoShot.after, promoRun) < 1280, `${promoShot?.label} · ${shotWidth(promoShot?.before, promoRun)}px / ${shotWidth(promoShot?.after, promoRun)}px wide`);
+const promoPr = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${promoRun.prNumber}`)).body;
+const compareHtml = [promoRun.comparePath, promoRun.localCompareDir && join(promoRun.localCompareDir, 'compare.html'), join(DIR, '.peanut-gallery/compare', promoRun.proposalId, 'compare.html')].filter(Boolean).map((f) => (existsSync(f) ? f : join(DIR, f))).find((f) => existsSync(f));
+const compareText = compareHtml ? readFileSync(compareHtml, 'utf8') : '';
+check('the comparison page says how the shots were reached, and the email is nowhere', compareText.includes('typing “PLANTS10” into “Promo code”') && !compareText.includes('private.invalid') && !promoPr.includes('private.invalid'), compareHtml ?? 'no compare.html found');
 
 summary();
 console.log(`\nWorkdir: ${DIR}\nCompare pages: ${runs.map((r) => r.comparePath).join(' , ')}`);

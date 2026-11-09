@@ -5,7 +5,11 @@ import {
   uid,
   LABELS,
   MAX_STEPS,
-  type ElementAnchor,
+  MAX_STEP_VALUE,
+  fieldName,
+  isPrivateField,
+  isTypingField,
+  type Step,
   type Annotation,
   type AnnotationKind,
   type ReviewSession,
@@ -104,6 +108,14 @@ export interface PeanutGalleryConfig {
   onSubmit?: (session: ReviewSession) => SubmitResult | Promise<SubmitResult>;
   /** Start from these notes instead of the ones saved in this browser (e.g. a demo or a test). */
   session?: ReviewSession;
+  /**
+   * Keep what reviewers type, and the options they choose, with each note (default true), so
+   * screenshots can replay it to reach the same state (search results, a filled-in form).
+   * Private fields never are: passwords, card details, codes, email, phone, name, address,
+   * birthday, and anything marked `data-peanut-private` (or `data-private`, `.fs-exclude`,
+   * `data-hj-suppress`, `.sentry-mask`). Set false to keep clicks only.
+   */
+  recordTyping?: boolean;
 }
 
 /** localStorage that never throws: sandboxed frames and strict privacy modes can block it. */
@@ -144,9 +156,13 @@ export class PeanutGalleryWidget {
   private raf = 0;
   private destroyed = false;
   private observer?: MutationObserver;
-  /** The reviewer's recent clicks on this page (see Annotation.steps). */
-  private steps: ElementAnchor[] = [];
+  /** What the reviewer did on this page recently (see Annotation.steps). */
+  private steps: Step[] = [];
   private stepsPage = '';
+  /** The field the last `type` step is for, so more typing updates that step. */
+  private typingIn: Element | null = null;
+  /** Form and time of the last Enter, to skip the click browsers fire on its submit button. */
+  private lastEnter: { form: HTMLFormElement | null; at: number } | null = null;
 
   constructor(cfg: PeanutGalleryConfig) {
     if (!cfg.repo || !/^[\w.-]+\/[\w.-]+$/.test(cfg.repo)) throw new Error('PeanutGallery: config.repo must be "owner/name"');
@@ -198,6 +214,11 @@ export class PeanutGalleryWidget {
     document.addEventListener('click', this.recordStep, true);
     document.addEventListener('click', this.onClick, true);
     document.addEventListener('keydown', this.onKey, true);
+    if (this.cfg.recordTyping !== false) {
+      document.addEventListener('input', this.recordInput, true);
+      document.addEventListener('change', this.recordSelect, true);
+      document.addEventListener('keydown', this.recordEnter, true);
+    }
     window.addEventListener('scroll', this.schedulePins, true);
     window.addEventListener('resize', this.schedulePins);
     // Single-page apps change the URL without a reload and re-render without scrolling,
@@ -230,6 +251,9 @@ export class PeanutGalleryWidget {
     document.removeEventListener('click', this.onClick, true);
     document.removeEventListener('click', this.recordStep, true);
     document.removeEventListener('keydown', this.onKey, true);
+    document.removeEventListener('input', this.recordInput, true);
+    document.removeEventListener('change', this.recordSelect, true);
+    document.removeEventListener('keydown', this.recordEnter, true);
     window.removeEventListener('scroll', this.schedulePins, true);
     window.removeEventListener('resize', this.schedulePins);
     window.removeEventListener(LOCATION_EVENT, this.onLocationChange);
@@ -356,27 +380,91 @@ export class PeanutGalleryWidget {
   };
 
   /**
-   * Remember what the reviewer clicks while using the app (not while placing a note), so a
-   * note inside a modal or a menu carries the clicks that opened it. Recorded in the capture
-   * phase, before the app re-renders. Only the element is kept, never what was typed.
+   * Remember what the reviewer does while using the app (not while placing a note), so a
+   * note inside a modal, on search results or after a form carries how to get there.
+   * Recorded in the capture phase, before the app re-renders.
    */
   private recordStep = (e: MouseEvent) => {
-    if (this.mode === 'commenting' || this.destroyed) return;
-    if (this.host && e.composedPath().includes(this.host)) return;
-    const raw = e.target;
-    if (!(raw instanceof Element)) return;
-    const target = raw.closest('button, a, summary, label, select, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [data-testid]') ?? raw;
+    const target0 = this.appTarget(e);
+    if (!target0) return;
+    // Enter in a field makes the browser "click" the form's submit button (detail 0). The
+    // Enter step already covers it; replaying both would submit twice.
+    if (e.detail === 0 && this.lastEnter && performance.now() - this.lastEnter.at < 250 && (target0 as HTMLButtonElement).form === this.lastEnter.form) {
+      this.lastEnter = null;
+      return;
+    }
+    // Choosing an option is recorded as a `select` step; clicking the box itself adds nothing.
+    if (this.cfg.recordTyping !== false && target0.closest('select, option')) return;
+    const target = target0.closest('button, a, summary, label, select, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [data-testid]') ?? target0;
+    const anchor = createAnchor(target, e.clientX, e.clientY);
+    this.pushStep({ ...anchor, context: undefined, textFingerprint: anchor.textFingerprint.slice(0, 60) });
+  };
+
+  /** Typing into a text field. Consecutive typing in the same field updates one step. */
+  private recordInput = (e: Event) => {
+    const el = this.appTarget(e);
+    if (!el || !isTypingField(el)) return;
+    const masked = isPrivateField(el);
+    const value = masked ? undefined : el.value.slice(0, MAX_STEP_VALUE);
+    const last = this.steps[this.steps.length - 1];
+    if (last?.action === 'type' && this.typingIn === el && this.stepsPage === this.pageUrl()) {
+      if (masked) delete last.value;
+      else last.value = value;
+      return;
+    }
+    this.pushStep({ ...this.fieldAnchor(el), action: 'type', ...(masked ? { masked: true } : { value }) });
+    this.typingIn = el;
+  };
+
+  /** Choosing an option in a <select>. */
+  private recordSelect = (e: Event) => {
+    const el = this.appTarget(e);
+    if (!(el instanceof HTMLSelectElement) || el.disabled) return;
+    const masked = isPrivateField(el);
+    const label = (el.selectedOptions[0]?.textContent ?? el.value).replace(/\s+/g, ' ').trim().slice(0, MAX_STEP_VALUE);
+    this.pushStep({ ...this.fieldAnchor(el), action: 'select', ...(masked ? { masked: true } : { value: label }) });
+  };
+
+  /** Enter in a single-line field: usually submits a search or a form. */
+  private recordEnter = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    const el = this.appTarget(e);
+    if (!el || !isTypingField(el) || el.tagName === 'TEXTAREA') return;
+    this.pushStep({ ...this.fieldAnchor(el), action: 'enter' });
+    this.lastEnter = { form: (el as HTMLInputElement).form, at: performance.now() };
+  };
+
+  /** The app element an event is about, or null for our own UI, comment mode, or non-elements. */
+  private appTarget(e: Event): Element | null {
+    if (this.mode === 'commenting' || this.destroyed) return null;
+    const path = e.composedPath();
+    if (this.host && path.includes(this.host)) return null;
+    const raw = path[0] ?? e.target;
+    return raw instanceof Element ? raw : null;
+  }
+
+  private fieldAnchor(el: Element): Step {
+    const r = el.getBoundingClientRect();
+    const anchor = createAnchor(el, r.left + r.width / 2, r.top + r.height / 2);
+    const field = fieldName(el);
+    return { ...anchor, context: undefined, textFingerprint: anchor.textFingerprint.slice(0, 60), ...(field ? { field } : {}) };
+  }
+
+  private pushStep(step: Step) {
     const here = this.pageUrl();
     if (here !== this.stepsPage) {
       this.steps = [];
       this.stepsPage = here;
     }
-    const anchor = createAnchor(target, e.clientX, e.clientY);
-    this.steps.push({ ...anchor, context: undefined, textFingerprint: anchor.textFingerprint.slice(0, 60) });
-    if (this.steps.length > MAX_STEPS) this.steps.shift();
-  };
+    const last = this.steps[this.steps.length - 1];
+    // The click that put the cursor in a field adds nothing once the typing is recorded.
+    if (last && step.action === 'type' && (last.action ?? 'click') === 'click' && last.selector === step.selector) this.steps.pop();
+    if (step.action !== 'type') this.typingIn = null;
+    this.steps.push(step);
+    while (this.steps.length > MAX_STEPS) this.steps.shift();
+  }
 
-  private currentSteps(): ElementAnchor[] | undefined {
+  private currentSteps(): Step[] | undefined {
     if (this.stepsPage !== this.pageUrl() || !this.steps.length) return undefined;
     return this.steps.map((st) => ({ ...st }));
   }

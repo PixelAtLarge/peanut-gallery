@@ -12,6 +12,7 @@ if (script?.dataset.repo) {
     mode: script.dataset.mode as 'issue-url' | 'relay' | 'auto' | undefined,
     activation: script.dataset.activation as 'always' | 'query' | undefined,
     loadFonts: script.dataset.loadFonts === 'true',
+    recordTyping: script.dataset.recordTyping !== 'false',
     author: script.dataset.author,
     labels: script.dataset.labels?.split(',').map((s) => s.trim()),
   });

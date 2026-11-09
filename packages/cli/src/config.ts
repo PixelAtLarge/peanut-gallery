@@ -65,10 +65,11 @@ export interface PeanutGalleryConfig {
   /** Default spend cap in USD per `apply`/`review`/`variants` invocation (CLI --budget overrides). */
   budget?: number;
   /**
-   * Screenshot size. `replayClicks` (default true): when a note's element isn't on the page as
-   * it first loads (a modal, a menu), click through what the reviewer clicked before leaving it,
-   * on the local dev server, then take the close-up. Set false if those clicks could cause side
-   * effects you don't want (e.g. a dev server wired to a real backend).
+   * Screenshot size. `replayClicks` (default true): replay what the reviewer did before leaving
+   * a note (clicks, typing, options chosen, Enter) when its element isn't on the page as it
+   * first loads (a modal, a menu), or when they typed to get there (search results, a form),
+   * then take the close-up. Private fields get a harmless stand-in or are skipped. Set false if
+   * replaying could cause side effects you don't want (e.g. a server wired to a real backend).
    */
   screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean };
   /**

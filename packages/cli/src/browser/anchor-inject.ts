@@ -1,4 +1,4 @@
-import { resolveAnchor, type ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
+import { resolveAnchor, standInValue, type ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
 
 declare global {
   interface Window {
@@ -8,6 +8,9 @@ declare global {
       clearOutlines(): void;
       /** Center of a recorded click target, scrolled into view, or null if it isn't there. */
       clickPoint(anchor: ElementAnchor): { x: number; y: number } | null;
+      /** Tag a recorded field so Playwright can type into it; null if it isn't there. */
+      markStep(anchor: ElementAnchor): { standIn: string | null } | null;
+      unmarkStep(): void;
     };
   }
 }
@@ -34,6 +37,17 @@ window.__peanutGallery = {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return null;
     return { x: r.left + r.width * (anchor.offset?.x ?? 0.5), y: r.top + r.height * (anchor.offset?.y ?? 0.5) };
+  },
+  markStep(anchor) {
+    window.__peanutGallery.unmarkStep();
+    const { el, confidence } = resolveAnchor(anchor, document);
+    if (!el || confidence < 0.4) return null;
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    el.setAttribute('data-peanut-gallery-step', '');
+    return { standIn: standInValue(el) };
+  },
+  unmarkStep() {
+    document.querySelectorAll('[data-peanut-gallery-step]').forEach((e) => e.removeAttribute('data-peanut-gallery-step'));
   },
   clearOutlines() {
     document.querySelectorAll<HTMLElement>('[data-peanut-gallery-outline]').forEach((e) => {

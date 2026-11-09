@@ -86,6 +86,7 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 | `kinds` | all seven | which tags to offer |
 | `theme` | Conifer / Prep / Wasabi | override any colour or font role, e.g. `{ primary: '#5b3df5', fontBody: 'Inter, sans-serif' }` |
 | `loadFonts` | `false` | load Manrope, Young Serif and JetBrains Mono from Google Fonts (`data-load-fonts="true"` on the script tag) |
+| `recordTyping` | `true` | keep what reviewers type and choose, so screenshots can replay it (private fields never are; see below). `data-record-typing="false"` on the script tag |
 | `onSubmit` | — | handle submission yourself (your backend, a demo); overrides `mode`. Resolve to clear the notes, return `{ keep: true }` to keep them, throw to show an error |
 | `session` | — | start from these notes instead of the ones saved in the browser |
 
@@ -105,7 +106,9 @@ Each note stores a CSS selector that prefers stable hooks (`data-testid`, `id`, 
 
 **Single-page apps.** Pins follow client-side navigation (React Router, Next, Vue Router, hash routes) and redraw when the app re-renders, so a note on a list that loads after the page still lands on its item. A note on something that isn't on screen right now, like a closed modal, hides its pin until the element comes back; it stays in the notes list. Each note remembers its route, ignoring the `?peanut` switch and tracking parameters.
 
-**Notes inside modals and menus.** Each note also keeps the last few clicks the reviewer made on that page before leaving it (the element and its visible label, never what they typed). The issue shows them ("Reached by clicking: “Remove”"), the agent is told how the element is reached, and when the element isn't on the freshly loaded page, the before/after screenshots click through the same steps on your local dev server first, so the comparison shows the open dialog. Set `"screenshot": { "replayClicks": false }` if replaying clicks against your dev server could have side effects.
+**Notes inside modals, search results and forms.** Each note also keeps the last few things the reviewer did on that page before leaving it: what they clicked, what they typed, options they chose, and Enter. The issue shows them ("Reached by: typing “lamp” into “Search” → pressing Enter"), and the agent is told how the element is reached. When the element isn't on the freshly loaded page, or the reviewer typed to get there, the before/after screenshots do the same steps first, so the comparison shows the open dialog or the search results.
+
+**Private fields are never recorded.** Passwords, card and bank details, codes, email, phone, name, address and birthday are kept as "filled in “Email”", without what was typed. Screenshots type a harmless stand-in (`reviewer@example.com`) or skip the field. To keep any other field out, mark it `data-peanut-private`. Markup that session-replay tools already use also works: `data-private`, `.fs-exclude`, `data-hj-suppress`, `.sentry-mask`. Set `recordTyping: false` in the widget to keep clicks only. Set `"screenshot": { "replayClicks": false }` if replaying steps against your dev server could have side effects.
 
 ## 2. (Optional) Relay for one-click submission
 
@@ -317,7 +320,7 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
 - Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
 - Apps that need a login: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state. Protected preview deployments already work, through `preview.headers`.
-- Screenshots replay the reviewer's clicks to reach modals and menus, but not typing: a state that needs form input (step 3 of a checkout) falls back to the full page and says so.
+- Replayed steps stay on one page: steps reset when the URL changes (the URL usually carries that state, e.g. `?q=lamp`). States that need a real password or card number can't be replayed; typing into rich-text editors (`contenteditable`) isn't recorded yet.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.
 - Vote classification is keyword-based; a Claude pass for nuanced replies ("after, but the old colour") is planned.
