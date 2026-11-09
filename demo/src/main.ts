@@ -88,27 +88,47 @@ renderIssue(current);
 
 // ── before / after slider ───────────────────────────────────────────────────
 
+// Drag anywhere on the images (or tab to the handle and use the arrow keys).
 const slider = $('#slider');
-const range = $<HTMLInputElement>('#cut');
+const handle = $('#cut');
+let cut = 50;
 const setCut = (pct: number) => {
-  const v = Math.max(0, Math.min(100, pct));
-  slider.style.setProperty('--cut', `${v}%`);
-  range.value = String(Math.round(v));
+  cut = Math.max(0, Math.min(100, pct));
+  slider.style.setProperty('--cut', `${cut}%`);
+  const v = Math.round(cut);
+  handle.setAttribute('aria-valuenow', String(v));
+  handle.setAttribute('aria-valuetext', v <= 2 ? 'All after' : v >= 98 ? 'All before' : `${v}% before, ${100 - v}% after`);
 };
-range.addEventListener('input', () => setCut(Number(range.value)));
 let dragging = false;
 const fromPointer = (e: PointerEvent) => {
   const r = slider.getBoundingClientRect();
   setCut(((e.clientX - r.left) / r.width) * 100);
 };
+const stop = () => {
+  dragging = false;
+  slider.classList.remove('dragging');
+};
+// Images are draggable by default: the browser would start dragging the picture and cancel ours.
+slider.addEventListener('dragstart', (e) => e.preventDefault());
 slider.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
   dragging = true;
+  slider.classList.add('dragging');
   slider.setPointerCapture(e.pointerId);
+  handle.focus({ preventScroll: true });
   fromPointer(e);
 });
 slider.addEventListener('pointermove', (e) => dragging && fromPointer(e));
-slider.addEventListener('pointerup', () => (dragging = false));
-slider.addEventListener('pointercancel', () => (dragging = false));
+slider.addEventListener('pointerup', stop);
+slider.addEventListener('pointercancel', stop);
+handle.addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 10 : 2;
+  const next = { ArrowLeft: cut - step, ArrowDown: cut - step, ArrowRight: cut + step, ArrowUp: cut + step, Home: 0, End: 100, PageDown: cut - 10, PageUp: cut + 10 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  setCut(next);
+});
 
 const views = {
   el: { before: 'assets/pr35-before-el1.png', after: 'assets/pr35-after-el1.png', w: 1120, h: 480, alt: ['Before: a plain outlined Pay now button next to Back', 'After: a filled blue button reading Pay $150.50'] },
