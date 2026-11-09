@@ -67,8 +67,12 @@ runs:
         fi
         case "$mode" in review|votes|both) ;; *) echo "::error::mode must be auto, review, votes or both (got '$MODE')"; exit 1 ;; esac
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
-        if [ "$GITHUB_EVENT_NAME" = issues ] && [ -n "$ISSUE" ]; then echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"; fi
-        echo "Peanut Gallery: $mode${ISSUE:+ (issue #$ISSUE)}"
+        if [ "$GITHUB_EVENT_NAME" = issues ] && [ -n "$ISSUE" ]; then
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "Peanut Gallery: $mode (issue #$ISSUE)"
+        else
+          echo "Peanut Gallery: $mode"
+        fi
 
     # The CLI comes from this action's own version of the repository, so the action and the CLI always match.
     - name: Build peanut-gallery
