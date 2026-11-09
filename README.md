@@ -231,6 +231,7 @@ Or add the step to a workflow of your own:
 Good to know:
 
 - **Who can start a run:** the workflow only acts on issues with the feedback label, and only people who can triage your repo can add labels. The relay adds the label with its own token. Replies from anyone are counted as votes, but votes never start the coding agent.
+- **Letting it open pull requests:** repositories block workflows from opening pull requests by default. `init --action` turns on "Allow GitHub Actions to create and approve pull requests" for you when your GitHub login can. Otherwise it's under Settings → Actions → General → Workflow permissions.
 - **Your other checks:** pull requests opened with the default `GITHUB_TOKEN` don't start your other workflows, such as CI. Pass a personal access token or a GitHub App token as `github-token` if you need them to.
 - **Matching versions:** the action builds the CLI from its own version of this repository, so the two always match.
 - **Screenshots in CI:** they work as they do locally. The runner installs your dependencies and starts your dev server, so your app needs to start without production secrets. Run history is cached between runs, so cost estimates keep improving.

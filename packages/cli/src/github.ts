@@ -140,14 +140,36 @@ export async function issuesWithLabel(repo: string, label: string): Promise<numb
   return raw.filter((r) => !r.pull_request).map((r) => r.number);
 }
 
+/** GitHub's refusal when Actions isn't allowed to open pull requests (off by default). */
+export const ACTIONS_PR_BLOCKED = /not permitted to create or approve pull requests/i;
+
+export function actionsPrHint(repo: string): string {
+  return [
+    `GitHub Actions isn't allowed to open pull requests in ${repo} (repositories block this by default).`,
+    `Turn it on: Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests",`,
+    `or run: gh api -X PUT repos/${repo}/actions/permissions/workflow -F can_approve_pull_request_reviews=true`,
+    `(For a repository owned by an organization, the organization's Actions settings must allow it too.) The branch was pushed, so nothing is lost.`,
+  ].join('\n');
+}
+
 export async function createPr(opts: { repo: string; head: string; base: string; title: string; body: string; cwd: string; draft?: boolean }): Promise<{ url: string; number: number }> {
-  const pr = await ghApi<{ html_url: string; number: number }>(
-    'POST',
-    `repos/${opts.repo}/pulls`,
-    { head: opts.head, base: opts.base, title: opts.title, body: opts.body, draft: !!opts.draft },
-    opts.cwd,
-  );
-  return { url: pr.html_url, number: pr.number };
+  try {
+    const pr = await ghApi<{ html_url: string; number: number }>(
+      'POST',
+      `repos/${opts.repo}/pulls`,
+      { head: opts.head, base: opts.base, title: opts.title, body: opts.body, draft: !!opts.draft },
+      opts.cwd,
+    );
+    return { url: pr.html_url, number: pr.number };
+  } catch (err) {
+    if (ACTIONS_PR_BLOCKED.test((err as Error).message)) throw new Error(actionsPrHint(opts.repo));
+    throw err;
+  }
+}
+
+/** Let the workflow token open pull requests (the "Allow GitHub Actions to create…" setting). */
+export async function allowActionsPullRequests(repo: string): Promise<void> {
+  await gh(['api', '-X', 'PUT', `repos/${repo}/actions/permissions/workflow`, '-F', 'can_approve_pull_request_reviews=true']);
 }
 
 export interface CommentReactions {

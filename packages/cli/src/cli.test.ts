@@ -356,3 +356,14 @@ describe('running from GitHub Actions', () => {
     expect(y).not.toContain('\t');
   });
 });
+
+describe('GitHub Actions pull request permission', () => {
+  it('recognises the refusal and explains the fix', async () => {
+    const { ACTIONS_PR_BLOCKED, actionsPrHint } = await import('./github.js');
+    expect(ACTIONS_PR_BLOCKED.test('gh: GitHub Actions is not permitted to create or approve pull requests. (HTTP 403)')).toBe(true);
+    const hint = actionsPrHint('o/r');
+    expect(hint).toContain('Allow GitHub Actions to create and approve pull requests');
+    expect(hint).toContain('repos/o/r/actions/permissions/workflow -F can_approve_pull_request_reviews=true');
+    expect(hint).not.toContain('default_workflow_permissions');
+  });
+});
