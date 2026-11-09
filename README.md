@@ -236,6 +236,26 @@ Good to know:
 - **Matching versions:** the action builds the CLI from its own version of this repository, so the two always match.
 - **Screenshots in CI:** they work as they do locally. The runner installs your dependencies and starts your dev server, so your app needs to start without production secrets. Run history is cached between runs, so cost estimates keep improving.
 
+### Screenshots from preview deployments
+
+If your host builds a preview of every pull request (Vercel, Netlify, Cloudflare Pages, Render…), take the "after" screenshots from it instead of a local dev server:
+
+```json
+"preview": {
+  "environment": "Preview",
+  "headers": { "x-vercel-protection-bypass": "${VERCEL_AUTOMATION_BYPASS_SECRET}", "x-vercel-set-bypass-cookie": "true" }
+}
+```
+
+`apply` pushes the branch and opens the pull request, waits for the host's preview of that exact commit, takes "after" from it, and then adds the comparison to the PR and the issues. "Before" comes from `prototypeUrl`, or your production deployment, or the local dev server, in that order (`"before": "local"` forces the dev server).
+
+- **Finding the preview:** hosts that integrate with GitHub report each preview as a GitHub deployment with its URL, so nothing else is needed. `environment` narrows it down if you have several. For a host that doesn't report deployments, give a pattern instead: `"url": "https://deploy-preview-{pr}--mysite.netlify.app"` (`{pr}`, `{branch}`, `{branchSlug}`, `{sha}`, `{shortSha}`).
+- **Protected previews:** `headers` are sent only to the preview, never to fonts or other sites. `${NAME}` is read from the environment, so secrets stay out of the config file. In GitHub Actions, pass them as `env` from your secrets.
+- **When it doesn't show up:** after `timeoutSeconds` (default 600), it falls back to the local dev server if you have one, or opens the PR without screenshots and says why.
+- **In GitHub Actions:** the workflow from `init --action` already has the `deployments: read` permission this needs.
+
+`true` turns it on with the defaults: `"preview": true`.
+
 ### Agreement and conflict
 
 `interpret` doesn't just cluster — it records **who** asked for each change and flags **disagreement**:
@@ -296,7 +316,7 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
 - Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
-- Apps that need a login: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state.
+- Apps that need a login: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state. Protected preview deployments already work, through `preview.headers`.
 - Screenshots replay the reviewer's clicks to reach modals and menus, but not typing: a state that needs form input (step 3 of a checkout) falls back to the full page and says so.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.

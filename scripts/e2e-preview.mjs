@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // End-to-end check of "after" screenshots from preview deployments, against a GitHub sandbox repo.
+// Meant to run in GitHub Actions on the sandbox (see its .github/workflows/e2e-preview.yml), where
+// the workflow token can report and read deployments:
 //
 //   SANDBOX=owner/name node scripts/e2e-preview.mjs
 //
-// The sandbox needs .github/workflows/fake-preview-host.yml (a stand-in for Vercel/Netlify that
-// reports a GitHub "Preview" deployment for every push to a peanut-gallery/* branch, pointing at
-// http://127.0.0.1:4700/). This script plays the host's servers: when a new peanut-gallery/*
-// branch appears on GitHub, it serves that branch's files locally.
-//
-// Three runs: preview found through GitHub deployments; through a URL pattern; and a preview
-// that never comes up, falling back to the local dev server. The AI steps use stand-ins.
+// The script plays the host (Vercel, Netlify…): when a new peanut-gallery/* branch appears on
+// GitHub, it serves that branch's files locally and reports a "Preview" deployment for each of its
+// commits, as real hosts do. Three runs: preview found through GitHub deployments; through a URL
+// pattern; and a preview that never comes up, falling back to the local dev server. The AI steps
+// use stand-ins.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -43,7 +43,6 @@ mkdirSync(WORK, { recursive: true });
 rmSync(DIR, { recursive: true, force: true });
 sh('git', ['clone', '-q', `https://github.com/${SANDBOX}.git`, DIR]);
 process.chdir(DIR);
-check('sandbox has the fake preview host workflow', existsSync('.github/workflows/fake-preview-host.yml'));
 const baseCfg = JSON.parse(readFileSync('peanut-gallery.config.json', 'utf8'));
 baseCfg.dev = { command: 'python3 -m http.server {port} --bind 127.0.0.1', port: 4310 };
 delete baseCfg.prototypeUrl;
@@ -124,7 +123,7 @@ const opened = [];
 // ── 1. preview found through GitHub deployments (how Vercel, Netlify, Cloudflare… report previews)
 {
   writeCfg({ environment: 'Preview', timeoutSeconds: 420 });
-  const host = fakeHost(4700, process.env.GITHUB_ACTIONS === 'true');
+  const host = fakeHost(4700, true);
   const t0 = Date.now();
   const [run] = await lib.applyCommand({ proposals: await proposalsFor('Preview e2e: deployments'), issues, port: 4460, implement: implement('deployments'), comment: false });
   host.stop();
