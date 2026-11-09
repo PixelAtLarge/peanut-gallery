@@ -46,9 +46,10 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
 
     - name: Decide what to run
       id: plan
@@ -103,7 +104,7 @@ runs:
 
     # Past runs make cost estimates better and let votes find proposals posted earlier.
     - name: Restore run history
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ inputs.working-directory }}/.peanut-gallery/runs.json
         key: peanut-gallery-runs-${{ github.run_id }}-${{ github.run_attempt }}
@@ -121,8 +122,12 @@ runs:
         ISSUE: ${{ steps.plan.outputs.issue }}
         BUDGET: ${{ inputs.budget }}
       run: |
-        [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
-        [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+        # Tokens never contain whitespace, but copying one from a terminal can add a line break where
+        # the line wrapped. Strip it, and keep the cleaned value hidden in the log.
+        for v in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; do
+          clean=$(printf '%s' "${!v:-}" | tr -d '[:space:]')
+          if [ -n "$clean" ]; then echo "::add-mask::$clean"; export "$v=$clean"; else unset "$v"; fi
+        done
         if [ ! -f peanut-gallery.config.json ]; then
           echo "::error::No peanut-gallery.config.json in $(pwd). Run 'npx peanut-gallery init' and commit the file."
           exit 1

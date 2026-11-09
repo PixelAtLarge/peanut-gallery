@@ -219,7 +219,7 @@ Commit `peanut-gallery.config.json` and the workflow. From then on:
 Or add the step to a workflow of your own:
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v5
 - uses: PixelAtLarge/peanut-gallery@v0
   with:
     claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # or anthropic-api-key
