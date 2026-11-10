@@ -125,6 +125,20 @@ export function createRelayHandler(opts: RelayOptions) {
   }
 }
 
+const STEP_ACTIONS = new Set(['click', 'type', 'select', 'enter']);
+
+function badStep(st: unknown): boolean {
+  if (!st || typeof st !== 'object') return true;
+  const x = st as { selector?: unknown; action?: unknown; value?: unknown; field?: unknown; masked?: unknown };
+  if (typeof x.selector !== 'string' || x.selector.length > 2000) return true;
+  if (x.action !== undefined && !STEP_ACTIONS.has(x.action as string)) return true;
+  if (x.value !== undefined && (typeof x.value !== 'string' || x.value.length > 500)) return true;
+  if (x.field !== undefined && (typeof x.field !== 'string' || x.field.length > 200)) return true;
+  // A masked step carries no value: the widget never sends what was typed into a private field.
+  if (x.masked !== undefined && (x.masked !== true || x.value !== undefined)) return true;
+  return false;
+}
+
 function validate(s: ReviewSession | undefined, max: number): string | null {
   if (!s || typeof s !== 'object') return 'missing session';
   if (typeof s.id !== 'string' || typeof s.prototypeUrl !== 'string') return 'malformed session';
@@ -135,7 +149,7 @@ function validate(s: ReviewSession | undefined, max: number): string | null {
     if (typeof a.text !== 'string' || a.text.length === 0 || a.text.length > 5000) return 'annotation text invalid';
     if (!a.anchor || typeof a.anchor.selector !== 'string' || a.anchor.selector.length > 2000) return 'anchor invalid';
     if (typeof a.pageUrl !== 'string' || a.pageUrl.length > 2000) return 'pageUrl invalid';
-    if (a.steps !== undefined && (!Array.isArray(a.steps) || a.steps.length > 10 || a.steps.some((st) => !st || typeof st.selector !== 'string' || st.selector.length > 2000))) return 'steps invalid';
+    if (a.steps !== undefined && (!Array.isArray(a.steps) || a.steps.length > 10 || a.steps.some(badStep))) return 'steps invalid';
     if (a.viewport !== undefined && (typeof a.viewport !== 'object' || !Number.isFinite(a.viewport?.width) || !Number.isFinite(a.viewport?.height))) return 'viewport invalid';
   }
   return null;

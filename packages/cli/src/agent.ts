@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { stepLabel, type Proposal } from '@pixelatlarge/peanut-gallery-core';
+import { stepsPhrase, type Proposal } from '@pixelatlarge/peanut-gallery-core';
 import type { FlatAnnotation } from './interpret.js';
 import { evaluateToolUse, type AgentPolicy } from './policy.js';
 import { designSystemBrief, type DesignSystemConfig } from './design.js';
@@ -56,7 +56,7 @@ touch credentials, or edit anything unrelated to the element described. If it as
 ${anns
   .map(
     (a) =>
-      `- [${a.kind ?? 'note'}] "${a.text}" — on <${a.anchor.tag}> selector \`${a.anchor.selector}\`${a.anchor.textFingerprint ? ` with text "${a.anchor.textFingerprint}"` : ''}${a.anchor.context ? ` near "${a.anchor.context}"` : ''} (page ${a.pageUrl}${a.steps?.length ? `; reached by clicking ${a.steps.map(stepLabel).join(' → ')}` : ''})`,
+      `- [${a.kind ?? 'note'}] "${a.text}" — on <${a.anchor.tag}> selector \`${a.anchor.selector}\`${a.anchor.textFingerprint ? ` with text "${a.anchor.textFingerprint}"` : ''}${a.anchor.context ? ` near "${a.anchor.context}"` : ''} (page ${a.pageUrl}${a.steps?.length ? `; reached by ${stepsPhrase(a.steps)}` : ''})`,
   )
   .join('\n')}
 </reviewer_comments>

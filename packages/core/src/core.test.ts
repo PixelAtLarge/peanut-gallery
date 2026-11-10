@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { buildSelector, createAnchor, resolveAnchor, sessionToIssue, issueToSession, newIssueUrl } from './index.js';
+import { buildSelector, createAnchor, resolveAnchor, sessionToIssue, issueToSession, newIssueUrl, stepPhrase, stepsPhrase, isPrivateField, isTypingField, fieldName, standInValue } from './index.js';
 import type { ReviewSession } from './index.js';
 
 function page(html: string) {
@@ -83,7 +83,7 @@ describe('issue format', () => {
     const step = { ...session.annotations[0].anchor, selector: 'button[data-testid="remove"]', textFingerprint: 'Remove', tag: 'button' };
     const withSteps: ReviewSession = { ...session, annotations: [{ ...session.annotations[0], steps: [step] }] };
     const { body } = sessionToIssue(withSteps);
-    expect(body).toContain('- **Reached by clicking:** “Remove”');
+    expect(body).toContain('- **Reached by:** clicking “Remove”');
     expect(issueToSession(body)).toEqual(withSteps);
   });
 
@@ -116,5 +116,61 @@ describe('sessionToIssue with partial notes', () => {
     const { body } = sessionToIssue(s as never);
     expect(body).toContain('`h1` → `h1`');
     expect(body).not.toContain('Viewport');
+  });
+});
+
+describe('steps', () => {
+  const base = { selector: 'input#q', tag: 'input', textFingerprint: '', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } };
+  it('reads as a sentence', () => {
+    expect(stepPhrase({ ...base, selector: 'button#f', tag: 'button', textFingerprint: 'Filters' })).toBe('clicking “Filters”');
+    expect(stepPhrase({ ...base, action: 'type', value: 'blue lamp', field: 'Search' })).toBe('typing “blue lamp” into “Search”');
+    expect(stepPhrase({ ...base, action: 'type', masked: true, field: 'Email' })).toBe('filling in “Email”');
+    expect(stepPhrase({ ...base, action: 'select', value: 'Large', field: 'Size' })).toBe('choosing “Large” in “Size”');
+    expect(stepPhrase({ ...base, action: 'enter', field: 'Search' })).toBe('pressing Enter');
+    expect(stepsPhrase([{ ...base, action: 'type', value: 'x', field: 'Search' }, { ...base, action: 'enter' }])).toBe('typing “x” into “Search” → pressing Enter');
+  });
+
+  it('shows typing in the issue, never a private value', () => {
+    const s: ReviewSession = {
+      id: 's', prototypeUrl: 'https://p.test', createdAt: 'now',
+      annotations: [{ id: 'a', text: 'Say how many matched', anchor: base, pageUrl: 'https://p.test/', viewport: { width: 1, height: 1 }, createdAt: 'now',
+        steps: [{ ...base, action: 'type', masked: true, field: 'Email' }, { ...base, action: 'type', value: 'lamp', field: 'Search' }, { ...base, action: 'enter' }] }],
+    };
+    expect(sessionToIssue(s).body).toContain('- **Reached by:** filling in “Email” → typing “lamp” into “Search” → pressing Enter');
+  });
+});
+
+describe('fields', () => {
+  it('knows text fields, their names, and which are private', () => {
+    page(`<form>
+      <label>Search <input id="q"></label>
+      <input id="promo" placeholder="Promo code">
+      <input id="em" type="email" aria-label="Email">
+      <input id="pw" type="password" name="pw">
+      <input id="card" name="cardNumber">
+      <input id="addr" placeholder="Street, city, ZIP">
+      <input id="nick" autocomplete="name">
+      <div data-private><input id="marked"></div>
+      <input id="fs" class="fs-exclude">
+      <input id="cb" type="checkbox">
+      <textarea id="msg" aria-labelledby="ml"></textarea><span id="ml">Gift message</span>
+      <label>Size <select id="size"><option>Small</option><option>Large</option></select></label>
+    </form>`);
+    const $ = (id: string) => document.getElementById(id)!;
+    expect(isTypingField($('q'))).toBe(true);
+    expect(isTypingField($('msg'))).toBe(true);
+    expect(isTypingField($('cb'))).toBe(false);
+    expect(fieldName($('q'))).toBe('Search');
+    expect(fieldName($('promo'))).toBe('Promo code');
+    expect(fieldName($('msg'))).toBe('Gift message');
+    expect(fieldName($('size'))).toBe('Size');
+    for (const id of ['q', 'promo', 'msg', 'size']) expect(isPrivateField($(id)), id).toBe(false);
+    for (const id of ['em', 'pw', 'card', 'addr', 'nick', 'marked', 'fs']) expect(isPrivateField($(id)), id).toBe(true);
+    expect(standInValue($('em'))).toBe('reviewer@example.com');
+    expect(standInValue($('addr'))).toBe('1 Example Street');
+    expect(standInValue($('nick'))).toBe('Alex Example');
+    expect(standInValue($('pw'))).toBeNull();
+    expect(standInValue($('card'))).toBeNull();
+    expect(standInValue($('marked'))).toBeNull();
   });
 });

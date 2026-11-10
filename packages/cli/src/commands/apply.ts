@@ -508,11 +508,11 @@ export function shotLabel(t: ShotTarget, before: ShotResult, after: ShotResult):
   if (!t.anchor) return t.label;
   if (before.found === false && after.found === false) {
     return t.steps?.length
-      ? `${t.label} — full page: couldn't reach this element, even after replaying the reviewer's clicks`
+      ? `${t.label} — full page: couldn't reach this element, even after replaying what the reviewer did`
       : `${t.label} — full page: this element isn't on the page when it first loads (e.g. it's inside a modal)`;
   }
   const clicks = after.replayed?.length ? after.replayed : before.replayed;
-  return clicks?.length ? `${t.label} — after clicking ${clicks.join(' → ')}` : t.label;
+  return clicks?.length ? `${t.label} — after ${clicks.join(' → ')}` : t.label;
 }
 
 export function supportLine(p: Proposal): string {

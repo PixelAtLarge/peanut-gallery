@@ -30,21 +30,62 @@ export interface Annotation {
   /** Optional free-form tag chosen by the reviewer, e.g. "bug", "copy", "layout". */
   kind?: AnnotationKind;
   /**
-   * Clicks the reviewer made on this page before leaving the note, oldest first (at most 5,
-   * reset on navigation). Screenshots replay them when the element isn't on the freshly
-   * loaded page, e.g. a note inside a modal. Element identities only, never typed values.
+   * What the reviewer did on this page before leaving the note, oldest first (at most
+   * MAX_STEPS, reset on navigation): clicks, typing, options chosen, Enter. Screenshots replay
+   * them to reach the same state, e.g. a note inside a modal or on search results. Private
+   * fields (passwords, card numbers, email…) are recorded as `masked`, without what was typed.
    */
-  steps?: ElementAnchor[];
+  steps?: Step[];
 }
 
-/** Most clicks kept per note. */
-export const MAX_STEPS = 5;
+/** One thing the reviewer did before leaving a note. Plain anchors (older notes) are clicks. */
+export interface Step extends ElementAnchor {
+  /** Defaults to 'click'. */
+  action?: StepAction;
+  /** Text typed (`type`) or the option's label (`select`). Absent when `masked`. */
+  value?: string;
+  /** The field looked private, so what was typed wasn't kept. Replays type a harmless stand-in, or skip it. */
+  masked?: boolean;
+  /** The field's name as a person would say it: its label, aria-label or placeholder. */
+  field?: string;
+}
 
-/** Short human label for a recorded click, e.g. `“Remove”` or `button#save`. */
-export function stepLabel(step: Pick<ElementAnchor, 'tag' | 'textFingerprint' | 'selector'>): string {
+export type StepAction = 'click' | 'type' | 'select' | 'enter';
+
+/** Most steps kept per note. */
+export const MAX_STEPS = 8;
+/** Longest typed value kept per step. */
+export const MAX_STEP_VALUE = 200;
+
+const quote = (t: string, n = 40) => `“${t.length > n ? t.slice(0, n - 1) + '…' : t}”`;
+
+/** Short human label for the element a step acted on, e.g. `“Remove”`, `“Search”` or `button#save`. */
+export function stepLabel(step: Pick<Step, 'tag' | 'textFingerprint' | 'selector' | 'field'>): string {
+  const f = (step.field ?? '').trim();
+  if (f) return quote(f);
   const t = (step.textFingerprint ?? '').trim();
-  if (t) return `“${t.length > 40 ? t.slice(0, 39) + '…' : t}”`;
+  if (t) return quote(t);
   return step.selector.length > 60 ? step.tag : step.selector;
+}
+
+/** A step as a phrase: `clicking “Remove”`, `typing “blue” into “Search”`, `pressing Enter`. */
+export function stepPhrase(step: Step): string {
+  const label = stepLabel(step);
+  switch (step.action ?? 'click') {
+    case 'type':
+      return step.masked || step.value === undefined ? `filling in ${label}` : `typing ${quote(step.value)} into ${label}`;
+    case 'select':
+      return step.value === undefined ? `choosing an option in ${label}` : `choosing ${quote(step.value)} in ${label}`;
+    case 'enter':
+      return 'pressing Enter';
+    default:
+      return `clicking ${label}`;
+  }
+}
+
+/** Join step phrases for a sentence: `clicking “Filters” → typing “blue” into “Search”`. */
+export function stepsPhrase(steps: Step[]): string {
+  return steps.map(stepPhrase).join(' → ');
 }
 
 export type AnnotationKind = 'bug' | 'copy' | 'layout' | 'visual' | 'flow' | 'question' | 'praise';

@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stepLabel, type ElementAnchor } from '@pixelatlarge/peanut-gallery-core';
+import { stepPhrase, type ElementAnchor, type Step } from '@pixelatlarge/peanut-gallery-core';
 
 export interface ShotTarget {
   /** Stable key, used for filenames. */
@@ -10,8 +10,8 @@ export interface ShotTarget {
   /** Path portion of the page (e.g. "/checkout?x=1"); joined onto the base URL. */
   pagePath: string;
   anchor?: ElementAnchor;
-  /** Clicks to replay if the element isn't on the freshly loaded page (Annotation.steps). */
-  steps?: ElementAnchor[];
+  /** What the reviewer did before leaving the note (Annotation.steps), replayed to reach the same state. */
+  steps?: Step[];
 }
 
 export interface ShotResult {
@@ -21,7 +21,7 @@ export interface ShotResult {
   confidence?: number;
   /** For element targets: false when the element wasn't on the page as loaded, so the shot is the full page. */
   found?: boolean;
-  /** Labels of the recorded clicks that were replayed to reach the element. */
+  /** The steps that were replayed to reach the element, as phrases (`clicking “Remove”`). */
   replayed?: string[];
 }
 
@@ -100,18 +100,18 @@ export async function captureShots(
           if (!(await page.evaluate(() => typeof window.__peanutGallery !== 'undefined').catch(() => false))) await page.addScriptTag({ content: injectSrc() });
         };
         const first = await page.evaluate((a) => window.__peanutGallery.locate(a, false), t.anchor);
-        // Not on the page as loaded (inside a modal, a menu, a tab): click through what the
-        // reviewer clicked before leaving the note, then look again.
-        if (!first.rect && t.steps?.length && opts.replayClicks !== false) {
+        // Not on the page as loaded (inside a modal, a menu, a tab), or reached by typing (search
+        // results, a filled-in form): do what the reviewer did before leaving the note, then look again.
+        const typed = t.steps?.some((st) => (st.action ?? 'click') !== 'click');
+        if ((!first.rect || typed) && t.steps?.length && opts.replayClicks !== false) {
           replayed = [];
           for (const step of t.steps) {
             await ensureInjected();
-            const pt = await page.evaluate((st) => window.__peanutGallery.clickPoint(st), step).catch(() => null);
-            if (!pt) continue;
-            await page.mouse.click(pt.x, pt.y);
-            replayed.push(stepLabel(step));
+            if (await replayStep(page, step)) replayed.push(stepPhrase(step));
             await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
-            await page.waitForTimeout(350);
+            // Search-as-you-type usually waits a beat before fetching.
+            await page.waitForTimeout((step.action ?? 'click') === 'type' ? 600 : 350);
+            await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
           }
           await ensureInjected();
         }
@@ -148,6 +148,43 @@ export async function captureShots(
   return results;
 }
 
+type PwPage = Awaited<ReturnType<Awaited<ReturnType<typeof launch>>['newPage']>>;
+
+/**
+ * Do one recorded step in the page. Returns false when it couldn't (element gone, or a private
+ * field with no safe stand-in), so the label only lists what actually happened.
+ */
+export async function replayStep(page: PwPage, step: Step): Promise<boolean> {
+  const action = step.action ?? 'click';
+  if (action === 'click') {
+    const pt = await page.evaluate((st) => window.__peanutGallery.clickPoint(st), step).catch(() => null);
+    if (!pt) return false;
+    await page.mouse.click(pt.x, pt.y);
+    return true;
+  }
+  const info = await page.evaluate((st) => window.__peanutGallery.markStep(st), step).catch(() => null);
+  if (!info) return false;
+  const field = page.locator('[data-peanut-gallery-step]').first();
+  try {
+    if (action === 'type') {
+      const value = step.masked || step.value === undefined ? info.standIn : step.value;
+      if (value === null) return false;
+      await field.fill(value, { timeout: 5_000 });
+    } else if (action === 'select') {
+      if (step.masked || step.value === undefined) return false;
+      await field.selectOption({ label: step.value }, { timeout: 5_000 }).catch(() => field.selectOption(step.value!, { timeout: 5_000 }));
+    } else if (action === 'enter') {
+      await field.press('Enter', { timeout: 5_000 });
+    } else return false;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    // Enter may have navigated away, taking the marker (and our script) with it.
+    await page.evaluate(() => window.__peanutGallery?.unmarkStep()).catch(() => {});
+  }
+}
+
 /** Render an HTML file to PNG (used to produce the side-by-side summary image). */
 export async function renderHtmlToPng(htmlPath: string, outFile: string, width = 1400) {
   const browser = await launch();
@@ -173,6 +210,8 @@ declare global {
       locate(anchor: ElementAnchor, outline?: boolean, color?: string): { rect: { x: number; y: number; width: number; height: number } | null; confidence: number };
       clearOutlines(): void;
       clickPoint(anchor: ElementAnchor): { x: number; y: number } | null;
+      markStep(anchor: ElementAnchor): { standIn: string | null } | null;
+      unmarkStep(): void;
     };
   }
 }

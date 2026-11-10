@@ -60,6 +60,20 @@ describe('relay', () => {
   });
 });
 
+describe('relay steps', () => {
+  it('accepts typing steps and rejects a private field that carries a value', async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/owner/repo/issues/8', number: 8 }), { status: 201 }));
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', fetch: f as unknown as typeof fetch });
+    const withSteps = (steps: unknown[]) => ({ session: { ...session, annotations: session.annotations.map((a) => ({ ...a, steps })) } });
+    const anchor = session.annotations[0].anchor;
+    expect((await handle(post(withSteps([{ ...anchor, action: 'type', value: 'lamp', field: 'Search' }, { ...anchor, action: 'enter' }])))).status).toBe(201);
+    expect((await handle(post(withSteps([{ ...anchor, action: 'type', masked: true }])))).status).toBe(201);
+    expect((await handle(post(withSteps([{ ...anchor, action: 'type', masked: true, value: 'hunter2' }])))).status).toBe(400);
+    expect((await handle(post(withSteps([{ ...anchor, action: 'hover' }])))).status).toBe(400);
+    expect((await handle(post(withSteps([{ ...anchor, action: 'type', value: 'x'.repeat(501) }])))).status).toBe(400);
+  });
+});
+
 describe('relay as a public endpoint', () => {
   const ok = () =>
     vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ html_url: 'https://github.com/o/r/issues/9', number: 9 }), { status: 201 }));
