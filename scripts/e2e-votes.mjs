@@ -5,7 +5,8 @@
 //
 // Set up the thread first with `node scripts/e2e-votes.mjs --setup` (posts as you, so the replies
 // have a human author), then run it where Claude is signed in, e.g. the sandbox's
-// "e2e vote replies" workflow:  SANDBOX=owner/repo ISSUE=<n> node scripts/e2e-votes.mjs
+// "e2e real Claude" workflow (script=scripts/e2e-votes.mjs, issue=<n>), or locally:
+//   SANDBOX=owner/repo ISSUE=<n> node scripts/e2e-votes.mjs
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';

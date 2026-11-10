@@ -182,7 +182,10 @@ Tell the agent what to build with, and it reads those files before every change,
 ]
 ```
 
-One check is built in: **Undefined CSS classes** flags classes a change adds to markup that no stylesheet defines, i.e. edits with no visible effect. It's on by default and report-only, and skips Tailwind/UnoCSS projects; set `"builtinChecks": { "undefinedClasses": "required" }` to open such PRs as drafts, or `false` to turn it off.
+Two checks are built in, both on by default and report-only:
+
+- **Description matches the code.** After the agent's change, a second, cheap Claude pass (`models.interpret`) reads the diff next to the plan, the agent's "What changed" summary and the reviewer requests. It lists what doesn't line up: things described but not in the code, changes in the code nobody mentioned, and reviewer requests not addressed. Findings show in the PR under Checks, with a warning under "What changed", so a reviewer doesn't take the description on trust. Lockfiles and peanut-gallery's own files are left out. `"builtinChecks": { "description": "required" }` opens mismatched PRs as drafts; `false` turns it off.
+- **Undefined CSS classes** flags classes a change adds to markup that no stylesheet defines, i.e. edits with no visible effect. It skips Tailwind/UnoCSS projects. `"builtinChecks": { "undefinedClasses": "required" }` opens such PRs as drafts; `false` turns it off.
 
 Commands run in the change's worktree with `PEANUT_GALLERY_CHANGED_FILES` (newline-separated), `PEANUT_GALLERY_BASE` and `PEANUT_GALLERY_PROPOSAL` set. They come from your config, which the agent can't edit.
 
