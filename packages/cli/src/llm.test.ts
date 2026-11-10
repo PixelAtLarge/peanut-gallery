@@ -85,3 +85,13 @@ describe('extractJson', () => {
     expect(extractJson('Here: {"a":{"b":2}} done')).toEqual({ a: { b: 2 } });
   });
 });
+
+describe('credentials', () => {
+  it('strips line breaks and spaces a pasted token picked up', async () => {
+    const { tidyCredentials } = await import('./llm.js');
+    const env: NodeJS.ProcessEnv = { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-abc\n', ANTHROPIC_API_KEY: '  \n' };
+    tidyCredentials(env);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-abc');
+    expect('ANTHROPIC_API_KEY' in env).toBe(false);
+  });
+});

@@ -78,6 +78,13 @@ export interface PeanutGalleryConfig {
    */
   screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean; phone?: PhoneSetting };
   /**
+   * How `votes` reads replies. "claude" (default): plain votes ("after", "B") are read with
+   * keywords; anything more ("after, but keep the old colour", "neither…", a reply that doesn't
+   * say which proposal) goes to Claude (models.interpret), which also picks up what else the
+   * reviewer asked for. "keywords": never call Claude.
+   */
+  votes?: { reader?: 'claude' | 'keywords' };
+  /**
    * Take "after" screenshots from your host's preview deployment of each pull request (Vercel,
    * Netlify, Cloudflare Pages, Render…) instead of a local dev server. `true` for the defaults.
    */

@@ -18,7 +18,7 @@ import { git } from './github.js';
 const program = new Command()
   .name('peanut-gallery')
   .description('Turn prototype feedback (GitHub Issues from the peanut-gallery widget) into Claude-implemented design updates with before/after and PRs.')
-  .version('0.1.4');
+  .version('0.1.5');
 
 program
   .command('init')
@@ -117,9 +117,10 @@ applyOpts(
 
 program
   .command('votes')
-  .description('Tally reviewer reactions/replies on posted comparisons')
+  .description('Tally reviewer reactions and replies on posted comparisons (Claude reads replies that are more than a plain vote)')
   .option('--label', 'apply accepted/rejected labels and comment on the PRs')
   .option('--local', 'only proposals in .peanut-gallery/runs.json (skip reading comparisons from GitHub)')
+  .option('--keywords', "read replies with keywords only, without Claude")
   .action(wrap(votesCommand));
 
 program

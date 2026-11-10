@@ -4,6 +4,8 @@ import { loadConfig, readJson, workPath, writeJson } from '../config.js';
 import { addLabels, commentOnIssue, getCommentReactions, getIssueCommentsAfter, issuesWithLabel, listIssueComments, removeLabel, type IssueComment } from '../github.js';
 import type { RunRecord } from './apply.js';
 import { jobSummary } from '../ci.js';
+import type Anthropic from '@anthropic-ai/sdk';
+import { humanReplies, readReplies, type Lean, type Reading, type VotePost } from '../vote-reader.js';
 
 const MARK = /<sub>peanut-gallery proposal `([^`]+)`(?: · options round (\d+))?<\/sub>/;
 const PR_URL = /https:\/\/github\.com\/[^\s)]+\/pull\/(\d+)/;
@@ -28,9 +30,10 @@ export function runsFromComments(issue: number, comments: IssueComment[]): RunRe
       }
     } else {
       const title = /^### Proposed update: (.+)$/m.exec(c.body)?.[1]?.trim() ?? id;
+      const summary = /^### Proposed update: .+\n_.*_\n\n(.+)$/m.exec(c.body)?.[1]?.trim();
       const pr = /Pull request: (\S+)/.exec(c.body)?.[1];
       const prm = pr ? PR_URL.exec(pr) : null;
-      out.push({ ...base, proposalId: id, title, ...(prm ? { prUrl: prm[0], prNumber: Number(prm[1]) } : {}) });
+      out.push({ ...base, proposalId: id, title, ...(summary ? { agentSummary: summary } : {}), ...(prm ? { prUrl: prm[0], prNumber: Number(prm[1]) } : {}) });
     }
   }
   return out;
@@ -70,11 +73,28 @@ export interface VoteSummary {
   prUrl?: string;
   after: number;
   before: number;
-  replies: { issue: number; author: string; text: string; lean: 'after' | 'before' | 'unclear' }[];
+  replies: { issue: number; author: string; text: string; lean: Lean; note?: string; by: Reading['by'] }[];
+  /** What reviewers asked for besides their vote ("keep the old colour"). */
+  notes: { author: string; note: string }[];
   verdict: 'after' | 'before' | 'mixed' | 'no-votes';
 }
 
-export async function votesCommand(opts: { label?: boolean; local?: boolean } = {}): Promise<VoteSummary[]> {
+export interface VotesOptions {
+  label?: boolean;
+  local?: boolean;
+  /** Read replies with keywords only (no Claude), whatever the config says. */
+  keywords?: boolean;
+  /** For tests: the Anthropic client to read replies with. */
+  client?: Anthropic;
+}
+
+interface ReadReply {
+  issue: number;
+  reply: { id: number; author: string; body: string };
+  reading: Reading;
+}
+
+export async function votesCommand(opts: VotesOptions = {}): Promise<VoteSummary[]> {
   const cfg = loadConfig();
   let all = readJson<RunRecord[]>(workPath('runs.json'), []);
   if (!opts.local) {
@@ -86,65 +106,102 @@ export async function votesCommand(opts: { label?: boolean; local?: boolean } = 
     all = mergeRuns(all, remote);
   }
   const runs = all.filter((r) => r.issueCommentIds.length && !r.variantOf);
-  // Variant rounds: tally letters on the shared options comment.
   const rounds = new Map<string, RunRecord[]>();
   for (const r of all.filter((r) => r.variantOf && r.issueCommentIds.length)) rounds.set(r.variantOf!, [...(rounds.get(r.variantOf!) ?? []), r]);
+
+  // Everything posted for a vote, per issue, so each reply counts for one post only.
+  const posts = new Map<number, VotePost[]>();
+  const add = (issue: number, post: VotePost) => {
+    const list = posts.get(issue) ?? [];
+    if (!list.some((p) => p.commentId === post.commentId && p.key === post.key)) list.push(post);
+    posts.set(issue, list);
+  };
+  for (const r of runs) for (const c of r.issueCommentIds) add(c.issue, { key: r.proposalId, kind: 'proposal', commentId: c.commentId, title: r.title, prNumber: r.prNumber, ...(r.agentSummary ? { summary: r.agentSummary.slice(0, 300) } : {}) });
+  for (const [pid, vs] of rounds) for (const c of vs.flatMap((v) => v.issueCommentIds)) add(c.issue, { key: `${pid}:options`, kind: 'options', commentId: c.commentId, title: vs[0].title.split(' — ')[0], labels: vs.map((v) => v.variantLabel!) });
+
+  const reader = opts.keywords ? 'keywords' : (cfg.votes?.reader ?? 'claude');
+  const cachePath = workPath('vote-readings.json');
+  const cache = readJson<Record<string, Reading>>(cachePath, {});
+  const byPost = new Map<string, ReadReply[]>();
+  let fellBack = 0;
+  for (const [issue, ps] of posts) {
+    const first = Math.min(...ps.map((p) => p.commentId));
+    const replies = await getIssueCommentsAfter(cfg.repo, issue, first).catch(() => []);
+    const readings = await readReplies(replies, ps, {
+      reader,
+      model: cfg.models.interpret,
+      client: opts.client,
+      classify,
+      classifyOption,
+      cache,
+      onFallback: (err, n) => {
+        fellBack += n;
+        if (fellBack === n) console.log(pc.yellow(`  ⚠ Couldn't reach Claude to read replies, so they were read with keywords. ${err.message.split('\n')[0]}`));
+      },
+    });
+    const people = humanReplies(replies);
+    readings.forEach((reading, i) => {
+      if (!reading.post) return;
+      byPost.set(reading.post, [...(byPost.get(reading.post) ?? []), { issue, reply: people[i], reading }]);
+    });
+  }
+  if (reader === 'claude') writeJson(cachePath, cache);
+
+  // Options rounds: tally the letters.
   for (const [pid, vs] of rounds) {
     const labels = vs.map((v) => v.variantLabel!);
     const tally = Object.fromEntries(labels.map((l) => [l, 0])) as Record<string, number>;
-    const seen = new Set<number>();
-    const replies: { author: string; text: string; pick: string | null }[] = [];
-    for (const c of vs.flatMap((v) => v.issueCommentIds)) {
-      if (seen.has(c.commentId)) continue;
-      seen.add(c.commentId);
-      for (const reply of await getIssueCommentsAfter(cfg.repo, c.issue, c.commentId)) {
-        if (reply.body.includes('peanut-gallery proposal')) continue;
-        const pick = classifyOption(reply.body, labels);
-        if (pick) tally[pick]++;
-        replies.push({ author: reply.author, text: reply.body.split('\n')[0].slice(0, 140), pick });
-      }
-    }
+    const replies = byPost.get(`${pid}:options`) ?? [];
+    for (const { reading } of replies) if (reading.option && reading.option in tally) tally[reading.option]++;
+    const notes = replies.filter((r) => r.reading.note).map((r) => ({ author: r.reply.author, note: r.reading.note! }));
     const best = labels.slice().sort((a, b) => tally[b] - tally[a])[0];
     const total = Object.values(tally).reduce((a, b) => a + b, 0);
     console.log(`\n${total ? pc.green(`OPTION ${best}`) : pc.dim('no votes')}  ${pc.bold(vs[0].title.split(' — ')[0])} ${pc.dim(`[${pid}] ${labels.map((l) => `${l}:${tally[l]}`).join(' · ')}`)}`);
     for (const v of vs) if (v.prUrl) console.log(pc.dim(`  ${v.variantLabel} ${v.prUrl}`));
-    for (const rep of replies) console.log(`  ${rep.pick ? pc.green(rep.pick.padEnd(6)) : pc.dim('  ?   ')} ${pc.dim(`${rep.author}:`)} ${rep.text}`);
+    for (const { reply, reading } of replies) {
+      console.log(`  ${reading.option ? pc.green(reading.option.padEnd(6)) : pc.dim('  ?   ')} ${pc.dim(`${reply.author}:`)} ${firstLine(reply.body)}`);
+      if (reading.note) console.log(pc.dim(`         ↳ also asked: ${reading.note}`));
+    }
     if (opts.label && total) {
       for (const v of vs) v.status = v.variantLabel === best ? 'accepted' : 'rejected';
       const issues = Array.from(new Set(vs.flatMap((v) => v.issueCommentIds.map((c) => c.issue))));
       for (const n of issues) await addLabels(cfg.repo, n, [cfg.labels?.accepted ?? LABELS.accepted]).catch(() => {});
       const win = vs.find((v) => v.variantLabel === best);
-      if (win?.prNumber) await postVerdictOnce(cfg.repo, win.prNumber, `${pid}:options`, best, `✅ Reviewers picked option **${best}** (${labels.map((l) => `${l}: ${tally[l]}`).join(', ')}). Ready to merge.`).catch(() => {});
+      if (win?.prNumber) await postVerdictOnce(cfg.repo, win.prNumber, `${pid}:options`, `${best}:${notes.length}`, `✅ Reviewers picked option **${best}** (${labels.map((l) => `${l}: ${tally[l]}`).join(', ')}). Ready to merge.${notesMarkdown(notes)}`).catch(() => {});
     }
   }
   if (!runs.length) {
-    console.log(pc.yellow('No proposals have been posted for voting yet. Run `peanut-gallery apply` first.'));
+    if (!rounds.size) console.log(pc.yellow('No proposals have been posted for voting yet. Run `peanut-gallery apply` first.'));
     return [];
   }
+
   const out: VoteSummary[] = [];
   for (const r of runs) {
     let after = 0;
     let before = 0;
-    const replies: VoteSummary['replies'] = [];
     for (const c of r.issueCommentIds) {
       const re = await getCommentReactions(cfg.repo, c.commentId);
       after += re['+1'] + re.heart + re.rocket;
       before += re['-1'] + re.confused;
-      for (const reply of await getIssueCommentsAfter(cfg.repo, c.issue, c.commentId)) {
-        if (reply.body.includes('peanut-gallery proposal')) continue; // our own
-        const lean = classify(reply.body);
-        if (lean === 'after') after++;
-        if (lean === 'before') before++;
-        replies.push({ issue: c.issue, author: reply.author, text: reply.body.split('\n')[0].slice(0, 140), lean });
-      }
     }
+    const replies: VoteSummary['replies'] = [];
+    for (const { issue, reply, reading } of byPost.get(r.proposalId) ?? []) {
+      if (reading.lean === 'after') after++;
+      // "Neither" is a vote against shipping this version.
+      if (reading.lean === 'before' || reading.lean === 'neither') before++;
+      replies.push({ issue, author: reply.author, text: firstLine(reply.body), lean: reading.lean, by: reading.by, ...(reading.note ? { note: reading.note } : {}) });
+    }
+    const notes = replies.filter((x) => x.note).map((x) => ({ author: x.author, note: x.note! }));
     const verdict: VoteSummary['verdict'] = !after && !before ? 'no-votes' : after > before ? 'after' : before > after ? 'before' : 'mixed';
-    const s: VoteSummary = { proposalId: r.proposalId, title: r.title, prUrl: r.prUrl, after, before, replies, verdict };
+    const s: VoteSummary = { proposalId: r.proposalId, title: r.title, prUrl: r.prUrl, after, before, replies, notes, verdict };
     out.push(s);
     const tag = verdict === 'after' ? pc.green('AFTER') : verdict === 'before' ? pc.red('BEFORE') : verdict === 'mixed' ? pc.yellow('MIXED') : pc.dim('no votes');
     console.log(`\n${tag}  ${pc.bold(r.title)} ${pc.dim(`[${r.proposalId}] 👍 ${after} · 👎 ${before}`)}`);
     if (r.prUrl) console.log(pc.dim(`  ${r.prUrl}`));
-    for (const rep of replies) console.log(`  ${lean(rep.lean)} ${pc.dim(`#${rep.issue} ${rep.author}:`)} ${rep.text}`);
+    for (const rep of replies) {
+      console.log(`  ${leanTag(rep.lean)} ${pc.dim(`#${rep.issue} ${rep.author}:`)} ${rep.text}`);
+      if (rep.note) console.log(pc.dim(`         ↳ also asked: ${rep.note}`));
+    }
 
     if (opts.label && (verdict === 'after' || verdict === 'before')) {
       const accepted = cfg.labels?.accepted ?? LABELS.accepted;
@@ -155,16 +212,37 @@ export async function votesCommand(opts: { label?: boolean; local?: boolean } = 
         await removeLabel(cfg.repo, c.issue, other).catch(() => {});
       }
       if (r.prNumber) {
-        await postVerdictOnce(cfg.repo, r.prNumber, r.proposalId, verdict, verdict === 'after' ? `✅ Reviewers preferred **After** (👍 ${after} · 👎 ${before}). Ready to merge.` : `🛑 Reviewers preferred **Before** (👍 ${after} · 👎 ${before}). Consider closing or revising.`).catch(() => {});
+        const head = verdict === 'after' ? `✅ Reviewers preferred **After** (👍 ${after} · 👎 ${before}). Ready to merge.` : `🛑 Reviewers preferred **Before** (👍 ${after} · 👎 ${before}). Consider closing or revising.`;
+        // A new request from a reviewer updates the verdict comment too.
+        await postVerdictOnce(cfg.repo, r.prNumber, r.proposalId, `${verdict}:${notes.length}`, `${head}${notesMarkdown(notes)}`).catch(() => {});
       }
       r.status = verdict === 'after' ? 'accepted' : 'rejected';
     }
   }
   if (opts.label) writeJson(workPath('runs.json'), all);
   if (out.length) {
-    jobSummary(['### 🥜 Votes', '', '| Change | 👍 After | 👎 Before | Verdict |', '| --- | --- | --- | --- |', ...out.map((v) => `| ${v.prUrl ? `[${v.title.replace(/\|/g, '\\|')}](${v.prUrl})` : v.title.replace(/\|/g, '\\|')} | ${v.after} | ${v.before} | ${v.verdict === 'no-votes' ? 'no votes yet' : v.verdict} |`), ''].join('\n'));
+    const asks = out.flatMap((v) => v.notes.map((n) => `- **${v.title.replace(/\|/g, '\\|')}**: ${n.note} _(${n.author})_`));
+    jobSummary(
+      [
+        '### 🥜 Votes',
+        '',
+        '| Change | 👍 After | 👎 Before | Verdict |',
+        '| --- | --- | --- | --- |',
+        ...out.map((v) => `| ${v.prUrl ? `[${v.title.replace(/\|/g, '\\|')}](${v.prUrl})` : v.title.replace(/\|/g, '\\|')} | ${v.after} | ${v.before} | ${v.verdict === 'no-votes' ? 'no votes yet' : v.verdict} |`),
+        '',
+        ...(asks.length ? ['**Reviewers also asked for**', '', ...asks, ''] : []),
+      ].join('\n'),
+    );
   }
   return out;
+}
+
+const firstLine = (body: string) =>
+  (body.split('\n').find((l) => l.trim() && !l.startsWith('>')) ?? body.split('\n')[0]).slice(0, 140);
+
+/** "Also asked for" list under a verdict. */
+export function notesMarkdown(notes: { author: string; note: string }[]): string {
+  return notes.length ? `\n\n**Reviewers also asked for:**\n${notes.map((n) => `- ${n.note} _(${n.author})_`).join('\n')}` : '';
 }
 
 /**
@@ -206,6 +284,6 @@ export function classify(body: string): 'after' | 'before' | 'unclear' {
   return 'unclear';
 }
 
-function lean(l: 'after' | 'before' | 'unclear') {
-  return l === 'after' ? pc.green('after ') : l === 'before' ? pc.red('before') : pc.dim('  ?   ');
+function leanTag(l: Lean) {
+  return l === 'after' ? pc.green('after ') : l === 'before' ? pc.red('before') : l === 'neither' ? pc.yellow('neithr') : pc.dim('  ?   ');
 }
