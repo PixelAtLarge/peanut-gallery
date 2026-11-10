@@ -1,9 +1,9 @@
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
-import { LABELS, type Proposal, type ProposalRun } from '@pixelatlarge/peanut-gallery-core';
+import { LABELS, isPhoneViewport, type Proposal, type ProposalRun } from '@pixelatlarge/peanut-gallery-core';
 import { implementProposal } from '../agent.js';
-import { loadConfig, readJson, workPath, writeJson, WORK_DIR, type ResolvedConfig } from '../config.js';
+import { loadConfig, phoneShots, readJson, workPath, writeJson, WORK_DIR, type ResolvedConfig } from '../config.js';
 import { startDevServer, type RunningServer } from '../devserver.js';
 import { addLabels, blobImageUrl, commentOnIssue, createPr, git, updatePrBody, type FeedbackIssue } from '../github.js';
 import { flatten, type FlatAnnotation } from '../interpret.js';
@@ -295,16 +295,18 @@ export async function runProposal(
   // 3. before/after screenshots
   const outDir = join(wt, WORK_DIR, 'compare', p.id);
   const prototypeUrl = ctx.issues.find((i) => i.session.annotations.some((a) => p.annotationIds.includes(a.id)))?.session.prototypeUrl;
-  const targets = shotTargets(p, annotations, prototypeUrl);
+  const phone = phoneShots(cfg.screenshot.phone);
+  const targets = shotTargets(p, annotations, prototypeUrl, phone);
   /** Capture before/after, build compare.html + summary.png, and commit them on the branch. */
   const shoot = async (beforeUrl: string, afterUrl: string, afterHeaders?: Record<string, string>): Promise<string> => {
-    const shot = { ...cfg.screenshot, outlineColor: cfg.resolvedTheme.accent };
+    const shot = { ...cfg.screenshot, phone: { width: phone.width, height: phone.height }, outlineColor: cfg.resolvedTheme.accent };
     const b = await captureShots(beforeUrl, targets, outDir, { ...shot, prefix: 'before' });
     const a = await captureShots(afterUrl, targets, outDir, { ...shot, prefix: 'after', headers: afterHeaders });
     const pairs: ComparePair[] = targets.map((t, i) => ({
       label: shotLabel(t, b[i], a[i]),
       before: relative(outDir, b[i].file),
       after: relative(outDir, a[i].file),
+      ...(t.phone ? { phone: true } : {}),
     }));
     writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
     writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
@@ -486,21 +488,38 @@ function linkNodeModules(root: string, wt: string) {
   mkdirSync(join(wt, WORK_DIR), { recursive: true });
 }
 
-function shotTargets(p: Proposal, annotations: FlatAnnotation[], prototypeUrl?: string): ShotTarget[] {
+/**
+ * What to screenshot for a proposal: a close-up of each element the notes are about, then each
+ * page. Notes left on a phone are shot at phone size (`screenshot.phone: "auto"`); with
+ * `phone: true` every target is shot at both sizes.
+ */
+export function shotTargets(p: Proposal, annotations: FlatAnnotation[], prototypeUrl: string | undefined, phone: { mode: 'auto' | 'always' | 'never' }): ShotTarget[] {
   const targets: ShotTarget[] = [];
   const anns = annotations.filter((a) => p.annotationIds.includes(a.id));
+  const auto = phone.mode === 'auto';
   p.focusAnchors.forEach((anchor, i) => {
-    const a = anns.find((x) => x.anchor.selector === anchor.selector) ?? anns[0];
+    const own = anns.find((x) => x.anchor.selector === anchor.selector);
+    const a = own ?? anns[0];
+    const onPhone = auto && !!own && isPhoneViewport(own.viewport);
     targets.push({
-      key: `el${i + 1}`,
-      label: `${anchor.tag}${anchor.textFingerprint ? ` “${anchor.textFingerprint.slice(0, 40)}”` : ''} · ${pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl)}`,
+      key: `el${i + 1}${onPhone ? '-phone' : ''}`,
+      label: `${anchor.tag}${anchor.textFingerprint ? ` “${anchor.textFingerprint.slice(0, 40)}”` : ''} · ${pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl)}${onPhone ? ' · phone' : ''}`,
       pagePath: pathOf(a?.pageUrl ?? p.pages[0] ?? '/', prototypeUrl),
       anchor,
-      ...(a?.steps?.length && a.anchor.selector === anchor.selector ? { steps: a.steps } : {}),
+      ...(own?.steps?.length ? { steps: own.steps } : {}),
+      ...(onPhone ? { phone: true } : {}),
     });
   });
-  p.pages.forEach((page, i) => targets.push({ key: `page${i + 1}`, label: `Page ${pathOf(page, prototypeUrl)}`, pagePath: pathOf(page, prototypeUrl) }));
-  return targets.slice(0, 8);
+  p.pages.forEach((page, i) => {
+    const path = pathOf(page, prototypeUrl);
+    targets.push({ key: `page${i + 1}`, label: `Page ${path}`, pagePath: path });
+    // Someone looked at this page on a phone: show it at phone size too.
+    const phoneHere = anns.some((a) => isPhoneViewport(a.viewport) && pathOf(a.pageUrl, prototypeUrl) === path);
+    if (auto && phoneHere) targets.push({ key: `page${i + 1}-phone`, label: `Page ${path} · phone`, pagePath: path, phone: true });
+  });
+  if (phone.mode !== 'always') return targets.slice(0, 8);
+  // Both sizes for everything: each desktop shot followed by its phone twin.
+  return targets.slice(0, 6).flatMap((t) => [t, { ...t, key: `${t.key}-phone`, label: `${t.label} · phone`, phone: true }]);
 }
 
 /** Label for a before/after pair, saying how the element was reached (or why it's a full page). */

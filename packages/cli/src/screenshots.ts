@@ -12,6 +12,8 @@ export interface ShotTarget {
   anchor?: ElementAnchor;
   /** What the reviewer did before leaving the note (Annotation.steps), replayed to reach the same state. */
   steps?: Step[];
+  /** Shoot at phone size (opts.phone) instead of desktop. */
+  phone?: boolean;
 }
 
 export interface ShotResult {
@@ -23,7 +25,13 @@ export interface ShotResult {
   found?: boolean;
   /** The steps that were replayed to reach the element, as phrases (`clicking “Remove”`). */
   replayed?: string[];
+  /** Shot at phone size. */
+  phone?: boolean;
 }
+
+const PHONE = { width: 390, height: 844 };
+/** A phone browser, so sites that check the user agent serve their mobile version too. */
+const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 
 const injectSrc = () => {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -66,27 +74,52 @@ export async function captureShots(
   baseUrl: string,
   targets: ShotTarget[],
   outDir: string,
-  opts: { width: number; height: number; fullPage: boolean; prefix: string; settleMs?: number; outlineColor?: string; replayClicks?: boolean; headers?: Record<string, string> },
+  opts: {
+    width: number;
+    height: number;
+    fullPage: boolean;
+    prefix: string;
+    settleMs?: number;
+    outlineColor?: string;
+    replayClicks?: boolean;
+    headers?: Record<string, string>;
+    /** Size for targets with `phone: true`. */
+    phone?: { width: number; height: number };
+  },
 ): Promise<ShotResult[]> {
   mkdirSync(outDir, { recursive: true });
   const browser = await launch();
-  const ctx = await browser.newContext({ viewport: { width: opts.width, height: opts.height }, deviceScaleFactor: 2 });
-  if (opts.headers && Object.keys(opts.headers).length) {
-    // Only the site being captured gets these (e.g. a preview's protection-bypass secret), never fonts or CDNs.
-    const origin = new URL(baseUrl).origin;
-    const extra = opts.headers;
-    await ctx.route('**/*', (route) => {
-      const req = route.request();
-      if (req.url().startsWith(origin + '/') || req.url() === origin) return route.continue({ headers: { ...req.headers(), ...extra } });
-      return route.continue();
-    });
-  }
+  type Ctx = Awaited<ReturnType<typeof browser.newContext>>;
+  const pages = new Map<boolean, PwPage>();
+  /** One browser context per size: desktop, and a touch phone (mobile layout, mobile user agent). */
+  const pageFor = async (phone: boolean): Promise<PwPage> => {
+    const open = pages.get(phone);
+    if (open) return open;
+    const size = phone ? (opts.phone ?? PHONE) : { width: opts.width, height: opts.height };
+    const ctx: Ctx = await browser.newContext(
+      phone ? { viewport: size, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: PHONE_UA } : { viewport: size, deviceScaleFactor: 2 },
+    );
+    if (opts.headers && Object.keys(opts.headers).length) {
+      // Only the site being captured gets these (e.g. a preview's protection-bypass secret), never fonts or CDNs.
+      const origin = new URL(baseUrl).origin;
+      const extra = opts.headers;
+      await ctx.route('**/*', (route) => {
+        const req = route.request();
+        if (req.url().startsWith(origin + '/') || req.url() === origin) return route.continue({ headers: { ...req.headers(), ...extra } });
+        return route.continue();
+      });
+    }
+    const page = await ctx.newPage();
+    pages.set(phone, page);
+    return page;
+  };
   const results: ShotResult[] = [];
   try {
-    const page = await ctx.newPage();
-    // Hide the widget itself if the page includes it.
-    await page.addStyleTag({ content: 'peanut-gallery{display:none!important}' }).catch(() => {});
     for (const t of targets) {
+      const phone = !!t.phone;
+      const page = await pageFor(phone);
+      const vw = page.viewportSize()?.width ?? opts.width;
+      const vh = page.viewportSize()?.height ?? opts.height;
       const url = joinUrl(baseUrl, t.pagePath);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 }).catch(() => page.goto(url, { waitUntil: 'load' }));
       await page.addStyleTag({ content: 'peanut-gallery{display:none!important}' }).catch(() => {});
@@ -107,7 +140,7 @@ export async function captureShots(
           replayed = [];
           for (const step of t.steps) {
             await ensureInjected();
-            if (await replayStep(page, step)) replayed.push(stepPhrase(step));
+            if (await replayStep(page, step, phone)) replayed.push(stepPhrase(step));
             await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
             // Search-as-you-type usually waits a beat before fetching.
             await page.waitForTimeout((step.action ?? 'click') === 'type' ? 600 : 350);
@@ -119,28 +152,28 @@ export async function captureShots(
         confidence = loc.confidence;
         if (loc.rect) {
           // Pad the element so the close-up has context; ensure a sensible minimum size.
-          const minW = Math.min(560, opts.width);
-          const minH = Math.min(240, opts.height);
+          const minW = Math.min(560, vw);
+          const minH = Math.min(240, vh);
           const padX = Math.max(48, (minW - loc.rect.width) / 2);
           const padY = Math.max(48, (minH - loc.rect.height) / 2);
           const clip = {
             x: Math.max(0, loc.rect.x - padX),
             y: Math.max(0, loc.rect.y - padY),
-            width: Math.min(opts.width, loc.rect.width + padX * 2),
-            height: Math.min(opts.height, loc.rect.height + padY * 2),
+            width: Math.min(vw, loc.rect.width + padX * 2),
+            height: Math.min(vh, loc.rect.height + padY * 2),
           };
-          if (clip.x + clip.width > opts.width) clip.x = Math.max(0, opts.width - clip.width);
-          if (clip.y + clip.height > opts.height) clip.y = Math.max(0, opts.height - clip.height);
-          clip.width = Math.min(clip.width, opts.width - clip.x);
-          clip.height = Math.min(clip.height, opts.height - clip.y);
+          if (clip.x + clip.width > vw) clip.x = Math.max(0, vw - clip.width);
+          if (clip.y + clip.height > vh) clip.y = Math.max(0, vh - clip.height);
+          clip.width = Math.min(clip.width, vw - clip.x);
+          clip.height = Math.min(clip.height, vh - clip.y);
           await page.screenshot({ path: file, clip });
           await page.evaluate(() => window.__peanutGallery.clearOutlines());
-          results.push({ key: t.key, label: t.label, file, confidence, found: true, ...(replayed?.length ? { replayed } : {}) });
+          results.push({ key: t.key, label: t.label, file, confidence, found: true, ...(replayed?.length ? { replayed } : {}), ...(phone ? { phone } : {}) });
           continue;
         }
       }
       await page.screenshot({ path: file, fullPage: opts.fullPage });
-      results.push({ key: t.key, label: t.label, file, confidence, ...(t.anchor ? { found: false } : {}), ...(replayed?.length ? { replayed } : {}) });
+      results.push({ key: t.key, label: t.label, file, confidence, ...(t.anchor ? { found: false } : {}), ...(replayed?.length ? { replayed } : {}), ...(phone ? { phone } : {}) });
     }
   } finally {
     await browser.close();
@@ -154,12 +187,14 @@ type PwPage = Awaited<ReturnType<Awaited<ReturnType<typeof launch>>['newPage']>>
  * Do one recorded step in the page. Returns false when it couldn't (element gone, or a private
  * field with no safe stand-in), so the label only lists what actually happened.
  */
-export async function replayStep(page: PwPage, step: Step): Promise<boolean> {
+export async function replayStep(page: PwPage, step: Step, touch = false): Promise<boolean> {
   const action = step.action ?? 'click';
   if (action === 'click') {
     const pt = await page.evaluate((st) => window.__peanutGallery.clickPoint(st), step).catch(() => null);
     if (!pt) return false;
-    await page.mouse.click(pt.x, pt.y);
+    // On a phone, tap: touch events first, then the click, like a real finger.
+    if (touch) await page.touchscreen.tap(pt.x, pt.y);
+    else await page.mouse.click(pt.x, pt.y);
     return true;
   }
   const info = await page.evaluate((st) => window.__peanutGallery.markStep(st), step).catch(() => null);

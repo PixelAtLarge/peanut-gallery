@@ -70,8 +70,13 @@ export interface PeanutGalleryConfig {
    * first loads (a modal, a menu), or when they typed to get there (search results, a form),
    * then take the close-up. Private fields get a harmless stand-in or are skipped. Set false if
    * replaying could cause side effects you don't want (e.g. a server wired to a real backend).
+   *
+   *
+   * `phone`: `"auto"` (default) shoots notes left on a phone-size screen at phone size, since
+   * that's what the reviewer saw. `true` also shoots every note and page at phone size, next to
+   * desktop. `false` is desktop only. `{ "width": 390, "height": 844 }` is `true` at that size.
    */
-  screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean };
+  screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean; phone?: PhoneSetting };
   /**
    * Take "after" screenshots from your host's preview deployment of each pull request (Vercel,
    * Netlify, Cloudflare Pages, Render…) instead of a local dev server. `true` for the defaults.
@@ -92,7 +97,7 @@ export interface ResolvedConfig extends PeanutGalleryConfig {
   models: { interpret: string; apply: string };
   branchPrefix: string;
   sourceHints: string[];
-  screenshot: { width: number; height: number; fullPage: boolean; replayClicks: boolean };
+  screenshot: { width: number; height: number; fullPage: boolean; replayClicks: boolean; phone: PhoneSetting };
   resolvedTheme: Theme;
 }
 
@@ -115,7 +120,7 @@ export function withDefaults(cfg: PeanutGalleryConfig): ResolvedConfig {
       interpret: cfg.models?.interpret ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL_INTERPRET ?? 'claude-haiku-5-5',
       apply: cfg.models?.apply ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL ?? 'claude-sonnet-5-5',
     },
-    screenshot: { width: 1280, height: 800, fullPage: false, replayClicks: true, ...(cfg.screenshot ?? {}) },
+    screenshot: { width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto', ...(cfg.screenshot ?? {}) },
     resolvedTheme: resolveTheme(cfg.theme),
   };
 }
@@ -147,4 +152,17 @@ export function readJson<T>(path: string, fallback: T): T {
 export function writeJson(path: string, data: unknown) {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
+}
+
+/** How to treat phone-size screenshots (see `screenshot.phone`). */
+export type PhoneSetting = 'auto' | boolean | { width?: number; height?: number };
+
+export const PHONE_SIZE = { width: 390, height: 844 };
+
+/** `screenshot.phone` as a mode and a size. */
+export function phoneShots(setting: PhoneSetting | undefined): { mode: 'auto' | 'always' | 'never'; width: number; height: number } {
+  if (setting === false) return { mode: 'never', ...PHONE_SIZE };
+  if (setting === true) return { mode: 'always', ...PHONE_SIZE };
+  if (setting && typeof setting === 'object') return { mode: 'always', width: setting.width ?? PHONE_SIZE.width, height: setting.height ?? PHONE_SIZE.height };
+  return { mode: 'auto', ...PHONE_SIZE };
 }

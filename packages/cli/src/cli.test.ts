@@ -105,7 +105,7 @@ describe('config', () => {
   it('fills defaults', () => {
     const c = withDefaults({ repo: 'o/r' });
     expect(c.baseBranch).toBe('main');
-    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false, replayClicks: true });
+    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto' });
     expect(withDefaults({ repo: 'o/r', screenshot: { width: 390 } }).screenshot.width).toBe(390);
   });
 });
@@ -366,5 +366,50 @@ describe('GitHub Actions pull request permission', () => {
     expect(hint).toContain('Allow GitHub Actions to create and approve pull requests');
     expect(hint).toContain('repos/o/r/actions/permissions/workflow -F can_approve_pull_request_reviews=true');
     expect(hint).not.toContain('default_workflow_permissions');
+  });
+});
+
+describe('phone screenshots', () => {
+  const anchor = (sel: string, text: string) => ({ selector: sel, textFingerprint: text, tag: 'div', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } });
+  const bar = anchor('div.mobile-bar', 'Checkout');
+  const pay = anchor('button#pay', 'Pay now');
+  const note = (id: string, a: ReturnType<typeof anchor>, width: number, page: string) => ({
+    id, text: id, anchor: a, pageUrl: `https://p.test${page}`, viewport: { width, height: 800 }, createdAt: 'now', issueNumber: 1, issueUrl: '', reviewer: 'anna',
+  });
+  const proposal = (ids: string[], anchors: ReturnType<typeof anchor>[], pages: string[]) =>
+    ({ id: 'pr_1', title: 't', summary: 's', instructions: 'i', annotationIds: ids, issueNumbers: [1], pages, focusAnchors: anchors, effort: 'small', confidence: 1, support: { reviewers: ['anna'], count: 1, annotationCount: 1 } }) as const;
+
+  it('reads the setting', async () => {
+    const { phoneShots } = await import('./config.js');
+    expect(phoneShots(undefined)).toEqual({ mode: 'auto', width: 390, height: 844 });
+    expect(phoneShots(false).mode).toBe('never');
+    expect(phoneShots(true).mode).toBe('always');
+    expect(phoneShots({ width: 375 })).toEqual({ mode: 'always', width: 375, height: 844 });
+  });
+
+  it('auto: notes left on a phone get phone shots, the rest stay desktop', async () => {
+    const { shotTargets } = await import('./commands/apply.js');
+    const anns = [note('a', bar, 390, '/'), note('b', pay, 1440, '/checkout')];
+    const t = shotTargets({ ...proposal(['a', 'b'], [bar, pay], ['https://p.test/', 'https://p.test/checkout']), focusAnchors: [bar, pay] } as never, anns as never, 'https://p.test', { mode: 'auto' });
+    expect(t.map((x) => [x.key, !!x.phone])).toEqual([['el1-phone', true], ['el2', false], ['page1', false], ['page1-phone', true], ['page2', false]]);
+    expect(t[0].label).toBe('div “Checkout” · / · phone');
+  });
+
+  it('true: every target at both sizes; false: desktop only', async () => {
+    const { shotTargets } = await import('./commands/apply.js');
+    const anns = [note('a', bar, 390, '/')];
+    const p = proposal(['a'], [bar], ['https://p.test/']) as never;
+    expect(shotTargets(p, anns as never, 'https://p.test', { mode: 'always' }).map((x) => x.key)).toEqual(['el1', 'el1-phone', 'page1', 'page1-phone']);
+    expect(shotTargets(p, anns as never, 'https://p.test', { mode: 'never' }).some((x) => x.phone)).toBe(false);
+  });
+
+  it('shows phone pairs at phone width', async () => {
+    const { renderComparePage, renderSummaryPage } = await import('./compare.js');
+    const p = proposal([], [], []) as never;
+    const pairs = [{ label: 'desk', before: 'b.png', after: 'a.png' }, { label: 'x · phone', before: 'bp.png', after: 'ap.png', phone: true }];
+    const html = renderComparePage(p, pairs, { repo: 'o/r', issueNumbers: [1] });
+    expect(html).toContain('id="pair-1" class="phone"');
+    expect(html).not.toContain('id="pair-0" class="phone"');
+    expect(renderSummaryPage(p, pairs)).toContain('class="pair phone"');
   });
 });
