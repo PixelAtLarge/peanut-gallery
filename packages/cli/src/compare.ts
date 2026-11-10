@@ -4,6 +4,8 @@ export interface ComparePair {
   label: string;
   before: string; // relative path from the compare page
   after: string;
+  /** Shot at phone size: shown at phone width instead of stretched across the column. */
+  phone?: boolean;
 }
 
 /** Shared <head> bits: theme variables + the default webfonts (falls back to system fonts offline). */
@@ -56,6 +58,11 @@ ${themeHead(theme)}
   section[data-view=slider] .side,section[data-view=toggle] .side{display:none}
   section[data-view=slider] .slider{display:block}
   section[data-view=toggle] .toggle{display:block}
+  section.phone .side figure{display:flex;flex-direction:column;align-items:center}
+  section.phone .side figcaption{align-self:stretch}
+  section.phone img{max-width:min(100%,390px)}
+  section.phone .slider .stage{max-width:min(100%,390px)}
+  section.phone .slider .top img{max-width:none}
   footer{padding:16px 36px 32px;color:var(--pg-muted);font-size:12px}
 </style></head>
 <body>
@@ -68,7 +75,7 @@ ${themeHead(theme)}
 <main>
 ${pairs
   .map(
-    (p, i) => `<section data-view="side" id="pair-${i}">
+    (p, i) => `<section data-view="side" id="pair-${i}"${p.phone ? ' class="phone"' : ''}>
   <h2><span>${esc(p.label)}</span><span class="views"><button aria-pressed="true" data-v="side">Side by side</button><button data-v="slider">Slider</button><button data-v="toggle">Toggle</button></span></h2>
   <div class="side">
     <figure><figcaption>Before</figcaption><img src="${esc(p.before)}" alt="Before: ${esc(p.label)}"></figure>
@@ -107,8 +114,9 @@ export function renderSummaryPage(proposal: Proposal, pairs: ComparePair[], them
   .pair>div:last-child .cap{color:var(--pg-success)}
   img{display:block;max-width:100%;height:auto;border-radius:6px}
   .label{font-size:13px;font-weight:700;margin:0 0 8px}
+  .pair.phone{grid-template-columns:repeat(2,minmax(0,340px));justify-content:start}
   </style></head><body><div class="brand">🥜 Peanut Gallery</div><h1>${esc(proposal.title)}</h1>
-  ${pairs.map((p) => `<p class="label">${esc(p.label)}</p><div class="pair"><div><div class="cap">Before</div><img src="${esc(p.before)}"></div><div><div class="cap">After</div><img src="${esc(p.after)}"></div></div>`).join('')}
+  ${pairs.map((p) => `<p class="label">${esc(p.label)}</p><div class="pair${p.phone ? ' phone' : ''}"><div><div class="cap">Before</div><img src="${esc(p.before)}"></div><div><div class="cap">After</div><img src="${esc(p.after)}"></div></div>`).join('')}
   </body></html>`;
 }
 
@@ -146,6 +154,7 @@ export function renderOptionsPage(
   .row{font-size:13px;font-weight:700;grid-column:1/-1;margin-top:10px;padding-top:12px;border-top:1px solid var(--pg-line)}
   .cell{border:1px solid var(--pg-line);border-radius:10px;padding:8px;background:var(--pg-surface)}
   img{display:block;max-width:100%;height:auto;border-radius:6px}
+  .cell.phone img{max-width:min(100%,300px);margin:0 auto}
   a{font-size:12px;font-weight:600}
 </style></head><body>
 <div class="brand">🥜 Peanut Gallery · options</div><h1>${esc(proposal.title)}</h1><p class="sub">${esc(proposal.summary)}</p>
@@ -155,8 +164,8 @@ export function renderOptionsPage(
   ${targets
     .map(
       (t, i) =>
-        `<div class="row">${esc(t)}</div><div class="cell"><img src="${esc(before[i] ?? '')}" alt="Before"></div>` +
-        options.map((o) => `<div class="cell"><img src="${esc(o.images[i] ?? '')}" alt="Option ${esc(o.label)}"></div>`).join(''),
+        `<div class="row">${esc(t)}</div><div class="cell${t.endsWith(' · phone') ? ' phone' : ''}"><img src="${esc(before[i] ?? '')}" alt="Before"></div>` +
+        options.map((o) => `<div class="cell${t.endsWith(' · phone') ? ' phone' : ''}"><img src="${esc(o.images[i] ?? '')}" alt="Option ${esc(o.label)}"></div>`).join(''),
     )
     .join('')}
 </div></body></html>`;

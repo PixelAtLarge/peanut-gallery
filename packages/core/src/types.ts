@@ -52,6 +52,11 @@ export interface Step extends ElementAnchor {
 
 export type StepAction = 'click' | 'type' | 'select' | 'enter';
 
+/** Notes left on a screen narrower than this were left on a phone (or a phone-size window). */
+export const PHONE_MAX_WIDTH = 767;
+
+export const isPhoneViewport = (v?: { width: number } | null): boolean => !!v && Number.isFinite(v.width) && v.width > 0 && v.width <= PHONE_MAX_WIDTH;
+
 /** Most steps kept per note. */
 export const MAX_STEPS = 8;
 /** Longest typed value kept per step. */

@@ -40,6 +40,10 @@ export default function Cart() {
         <strong data-testid="subtotal">{money(subtotal)}</strong>
       </div>
       <Link to="/checkout" className="btn" data-testid="to-checkout">Continue to checkout</Link>
+      <div className="mobile-bar" data-testid="mobile-bar">
+        <span>{money(subtotal)}</span>
+        <Link to="/checkout" className="btn">Checkout</Link>
+      </div>
 
       {removing && (
         <ConfirmDialog

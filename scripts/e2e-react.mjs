@@ -187,6 +187,25 @@ await settle();
 check('browser Back (popstate) redraws the right pins', (await pins()).length === 1 && await pinOn((await pins())[0], '[data-testid="pay"]'));
 
 const session = await page.evaluate((repo) => JSON.parse(localStorage.getItem(`peanut-gallery:${repo}`)), 'PixelAtLarge/peanut-gallery-sandbox');
+
+// A second reviewer, on a phone: taps to leave a note on the sticky checkout bar, which only exists at phone size.
+const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const phonePage = await phoneCtx.newPage();
+phonePage.on('pageerror', (e) => errors.push(`phone: ${e.message}`));
+await phonePage.goto(`http://127.0.0.1:${PORT}/?peanut`);
+await phonePage.locator('[data-testid="mobile-bar"]').waitFor();
+const pw = (sel) => phonePage.locator('peanut-gallery').locator(sel);
+const toolbarBox = await pw('.pg-toolbar').boundingBox();
+check('on a phone, the widget toolbar fits on screen', toolbarBox && toolbarBox.x >= 0 && toolbarBox.x + toolbarBox.width <= 390, JSON.stringify(toolbarBox));
+await pw('[data-role=comment]').tap();
+await phonePage.locator('[data-testid="mobile-bar"] span').tap();
+await pw('textarea').fill('Say how many plants are in the cart, not just the total.');
+await pw('.pg-composer .pg-primary').tap();
+await phonePage.waitForTimeout(200);
+const phoneSession = await phonePage.evaluate((repo) => JSON.parse(localStorage.getItem(`peanut-gallery:${repo}`)), 'PixelAtLarge/peanut-gallery-sandbox');
+const phoneNote = phoneSession?.annotations?.[0];
+check('a reviewer on a phone can leave a note by tapping', phoneSession?.annotations?.length === 1 && phoneNote.viewport.width === 390 && phoneNote.anchor.selector.includes('mobile-bar'), JSON.stringify(phoneNote && { viewport: phoneNote.viewport, selector: phoneNote.anchor.selector }));
+await phoneCtx.close();
 await browser.close();
 stopVite();
 check('no errors in the app while reviewing', errors.length === 0, errors.join(' | '));
@@ -213,13 +232,21 @@ const relay = createRelayHandler({ githubToken: relayToken, repo: SANDBOX, allow
 const res = await relay(new Request('https://relay.local/', { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ session }) }));
 const filed = await res.json();
 check('relay created a GitHub issue', res.status === 201 && filed.issueNumber, filed.issueUrl ?? JSON.stringify(filed));
+phoneSession.author = 'e2e-phone-reviewer';
+const phoneRes = await relay(new Request('https://relay.local/', { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ session: phoneSession }) }));
+const phoneFiled = await phoneRes.json();
+check('…and one for the phone reviewer', phoneRes.status === 201 && phoneFiled.issueNumber, phoneFiled.issueUrl ?? JSON.stringify(phoneFiled));
 
-let ours;
-for (let i = 0; i < 6 && !ours; i++) {
+let ours, theirs;
+for (let i = 0; i < 6 && !(ours && theirs); i++) {
   if (i) await new Promise((r) => setTimeout(r, 2500));
   sh('node', [CLI, 'pull']);
-  ours = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8')).find((x) => x.number === filed.issueNumber);
+  const pulled = JSON.parse(readFileSync('.peanut-gallery/feedback.json', 'utf8'));
+  ours = pulled.find((x) => x.number === filed.issueNumber);
+  theirs = pulled.find((x) => x.number === phoneFiled.issueNumber);
 }
+const phoneIssueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${phoneFiled.issueNumber}`)).body;
+check('the phone issue says it came from a phone-size screen', phoneIssueBody.includes('390×844 (phone size)'));
 check('pull parsed the issue back into a session, steps included', ours?.session.annotations.length === 4 && JSON.stringify(stepsOf(ours.session)) === JSON.stringify(stepsOf(session)));
 const issueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}`)).body;
 check('the issue tells humans how to reach the modal note', issueBody.includes('Reached by:** clicking “Remove”'));
@@ -227,20 +254,21 @@ check('…and the promo note, without the email', issueBody.includes('Reached by
 
 // ── 4. interpret ──────────────────────────────────────────────────────────────
 const lib = await import(join(ROOT, 'packages/cli/dist/index.js'));
-const flat = lib.flatten([ours]);
+const flat = lib.flatten([ours, theirs]);
 const byText = (t) => flat.find((a) => a.text.includes(t));
-const [photo, modal, pay, promo] = [byText('photo'), byText('which plant'), byText('primary button'), byText('how much I saved')];
+const [photo, modal, pay, promo, bar] = [byText('photo'), byText('which plant'), byText('primary button'), byText('how much I saved'), byText('how many plants')];
 const fakeClient = { messages: { create: async () => ({ content: [{ type: 'text', text: JSON.stringify({
   proposals: [
     { title: 'Make “Pay now” the primary action with the total', summary: 'Primary style on the pay button, with the amount on it.', instructions: 'In src/pages/Checkout.jsx give the pay button a .btn-primary modifier and the label "Pay $104.00"; define .btn-primary in src/styles/app.css with tokens.', annotationIds: [pay.id], focusAnchorIds: [pay.id], effort: 'small', confidence: 0.9 },
     { title: 'Say what the promo code saves', summary: 'The applied message shows the amount saved.', instructions: 'In src/pages/Checkout.jsx change the promo-applied message to "{applied} applied: you save {money(subtotal - total)}".', annotationIds: [promo.id], focusAnchorIds: [promo.id], effort: 'small', confidence: 0.85 },
+    { title: 'Show the item count on the phone checkout bar', summary: 'The sticky bar says how many plants are in the cart.', instructions: 'In src/pages/Cart.jsx, make the mobile-bar span read "{items.length} plants · {money(subtotal)}".', annotationIds: [bar.id], focusAnchorIds: [bar.id], effort: 'small', confidence: 0.85 },
     { title: 'Name the plant in the remove dialog', summary: 'Dialog title says which plant is being removed.', instructions: 'In src/pages/Cart.jsx pass title={`Remove ${removing.name}?`} to ConfirmDialog.', annotationIds: [modal.id], focusAnchorIds: [modal.id], effort: 'small', confidence: 0.85 },
   ],
   skipped: [{ annotationId: photo.id, reason: 'needs product photos (deferred for the e2e run)' }],
 }) }] }) } };
 const { proposals } = await lib.interpret(flat, REAL_AI ? { model: cfg.models?.interpret ?? 'claude-haiku-5-5' } : { model: 'stand-in', client: fakeClient });
 writeFileSync('.peanut-gallery/proposals.json', JSON.stringify(proposals, null, 2));
-check('interpret proposed changes for the pay button, the dialog and the promo message', [pay, modal, promo].every((a) => proposals.some((p) => p.annotationIds.includes(a.id))), proposals.map((p) => p.title).join(' | '));
+check('interpret proposed changes for the pay button, the dialog, the promo message and the phone bar', [pay, modal, promo, bar].every((a) => proposals.some((p) => p.annotationIds.includes(a.id))), proposals.map((p) => p.title).join(' | '));
 
 // ── 5. apply: worktrees on the branch → Vite in each → screenshots → PRs ──────
 const edit = (cwd, file, from, to) => {
@@ -250,7 +278,9 @@ const edit = (cwd, file, from, to) => {
   writeFileSync(p, src.replace(from, to));
 };
 const fakeImplement = async (p, anns, { cwd }) => {
-  if (/promo/i.test(p.title)) {
+  if (/checkout bar/i.test(p.title)) {
+    edit(cwd, 'src/pages/Cart.jsx', '<span>{money(subtotal)}</span>', '<span>{items.length} plants · {money(subtotal)}</span>');
+  } else if (/promo/i.test(p.title)) {
     edit(cwd, 'src/pages/Checkout.jsx', '{applied} applied: 10% off', '{applied} applied: you save {money(subtotal - total)}');
   } else if (/pay/i.test(p.title)) {
     edit(cwd, 'src/pages/Checkout.jsx', '<button className="btn" data-testid="pay">Pay now</button>', '<button className="btn btn-primary" data-testid="pay">Pay {money(total)}</button>');
@@ -261,7 +291,7 @@ const fakeImplement = async (p, anns, { cwd }) => {
   return { ok: true, summary: `Stand-in agent: ${p.title}.`, costUsd: 0, turns: 1, denied: [] };
 };
 if (!REAL_AI) process.env.ANTHROPIC_API_KEY ??= 'stand-in';
-const runs = await lib.applyCommand({ proposals, issues: [ours], port: 4440, ...(REAL_AI ? {} : { implement: fakeImplement }) });
+const runs = await lib.applyCommand({ proposals, issues: [ours, theirs], port: 4440, ...(REAL_AI ? {} : { implement: fakeImplement }) });
 // Find each change by the note it addresses (real Claude may word titles differently,
 // merge notes, or also propose the photo change).
 const runFor = (ann) => runs.find((r) => proposals.find((p) => p.id === r.proposalId)?.annotationIds.includes(ann.id));
@@ -269,7 +299,7 @@ const payRun = runFor(pay) ?? runs[0];
 const modalRun = runFor(modal);
 const shotFor = (run, ann) => run?.screenshots?.find((s) => s.label.includes(ann.anchor.textFingerprint.slice(0, 20))) ?? run?.screenshots?.[0];
 for (const r of runs) console.log(`   ${r.proposalId}: ${r.status ?? ''} ${r.branch ?? ''} ${r.prUrl ?? r.error ?? ''}`);
-check('each change got its own branch and PR against the app branch', runs.length >= 3 && runs.every((r) => r.prUrl), runs.map((r) => r.prUrl).join(' , '));
+check('each change got its own branch and PR against the app branch', runs.length >= 4 && runs.every((r) => r.prUrl), runs.map((r) => r.prUrl).join(' , '));
 const prBase = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}`)).base.ref;
 check(`PRs target ${BRANCH}, not main`, prBase === BRANCH, prBase);
 check('Vite ran in both worktrees (before + after screenshots)', runs.every((r) => r.screenshots?.length > 0), runs.map((r) => `${r.screenshots?.length ?? 0} pairs`).join(', '));
@@ -292,6 +322,11 @@ const promoPr = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${promoRun.prNumber
 const compareHtml = [promoRun.comparePath, promoRun.localCompareDir && join(promoRun.localCompareDir, 'compare.html'), join(DIR, '.peanut-gallery/compare', promoRun.proposalId, 'compare.html')].filter(Boolean).map((f) => (existsSync(f) ? f : join(DIR, f))).find((f) => existsSync(f));
 const compareText = compareHtml ? readFileSync(compareHtml, 'utf8') : '';
 check('the comparison page says how the shots were reached, and the email is nowhere', compareText.includes('typing “PLANTS10” into “Promo code”') && !compareText.includes('private.invalid') && !promoPr.includes('private.invalid'), compareHtml ?? 'no compare.html found');
+const barRun = runFor(bar);
+const barShot = barRun?.screenshots?.find((s) => s.label.startsWith('div') || s.label.startsWith('span'));
+check('phone note: close-up shot at phone size, of the bar only phones have', barShot && barShot.label.endsWith('· phone') && !barShot.label.includes('full page') && shotWidth(barShot.before, barRun) > 0 && shotWidth(barShot.before, barRun) <= 390 && shotWidth(barShot.after, barRun) <= 390, `${barShot?.label} · ${shotWidth(barShot?.before, barRun)}px / ${shotWidth(barShot?.after, barRun)}px wide`);
+check('…plus the page at both sizes', ['Page / ', 'Page / · phone'].every((l) => barRun?.screenshots?.some((s) => `${s.label} `.startsWith(l))) , barRun?.screenshots?.map((s) => s.label).join(' | '));
+check('desktop notes stay desktop-only', [payRun, modalRun].every((r) => r?.screenshots?.every((s) => !s.label.includes('phone'))));
 
 summary();
 console.log(`\nWorkdir: ${DIR}\nCompare pages: ${runs.map((r) => r.comparePath).join(' , ')}`);

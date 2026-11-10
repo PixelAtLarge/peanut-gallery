@@ -174,3 +174,12 @@ describe('fields', () => {
     expect(standInValue($('marked'))).toBeNull();
   });
 });
+
+describe('phone notes', () => {
+  it('says so in the issue', () => {
+    const base = { selector: 'div', tag: 'div', textFingerprint: '', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } };
+    const mk = (width: number): ReviewSession => ({ id: 's', prototypeUrl: 'https://p.test', createdAt: 'now', annotations: [{ id: 'a', text: 'x', anchor: base, pageUrl: 'https://p.test/', viewport: { width, height: 844 }, createdAt: 'now' }] });
+    expect(sessionToIssue(mk(390)).body).toContain('- **Viewport:** 390×844 (phone size)');
+    expect(sessionToIssue(mk(1280)).body).not.toContain('phone size');
+  });
+});

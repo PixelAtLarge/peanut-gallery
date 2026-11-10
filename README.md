@@ -110,6 +110,8 @@ Each note stores a CSS selector that prefers stable hooks (`data-testid`, `id`, 
 
 **Private fields are never recorded.** Passwords, card and bank details, codes, email, phone, name, address and birthday are kept as "filled in “Email”", without what was typed. Screenshots type a harmless stand-in (`reviewer@example.com`) or skip the field. To keep any other field out, mark it `data-peanut-private`. Markup that session-replay tools already use also works: `data-private`, `.fs-exclude`, `data-hj-suppress`, `.sentry-mask`. Set `recordTyping: false` in the widget to keep clicks only. Set `"screenshot": { "replayClicks": false }` if replaying steps against your dev server could have side effects.
 
+**Notes left on a phone get phone-size screenshots.** Each note records the reviewer's screen size. When it's phone size, the issue says so, the agent is told, and the before/after shots for that note are taken at phone size (390×844, a touch phone browser) instead of desktop, plus the page at both sizes. That covers things that only exist on phones, like a sticky bottom bar or a hamburger menu. To shoot everything at both sizes, set `"screenshot": { "phone": true }` (or a size, `{ "width": 375, "height": 667 }`). `false` keeps desktop only.
+
 ## 2. (Optional) Relay for one-click submission
 
 The browser can't hold a GitHub token. If reviewers shouldn't need GitHub accounts, deploy the relay — it's one function that validates the payload and creates the issue.
@@ -318,7 +320,7 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 ## Roadmap / known limits
 
 - `issue-url` mode truncates very long sessions to fit GitHub's URL limit (~40 short notes); use the relay for big sessions.
-- Screenshots are desktop-only (`screenshot.width`); mobile viewports per proposal are a TODO.
+- Phone-size shots use one phone size per run (`screenshot.phone`); tablets get the desktop size.
 - Apps that need a login: set `prototypeUrl` to a local server, or extend `captureShots` with a storage state. Protected preview deployments already work, through `preview.headers`.
 - Replayed steps stay on one page: steps reset when the URL changes (the URL usually carries that state, e.g. `?q=lamp`). States that need a real password or card number can't be replayed; typing into rich-text editors (`contenteditable`) isn't recorded yet.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
