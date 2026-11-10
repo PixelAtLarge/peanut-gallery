@@ -28,6 +28,10 @@ export interface CheckResult {
   timedOut: boolean;
   output: string;
   durationMs: number;
+  /** Replaces "passed" / "failed (exit 1)" in the PR. */
+  status?: string;
+  /** Markdown shown in the PR (not folded away), e.g. a built-in check's findings. */
+  detail?: string;
 }
 
 const OUTPUT_CAP = 3000;
@@ -88,11 +92,12 @@ export async function runChecks(checks: CheckConfig[] | undefined, cwd: string, 
 export function checksMarkdown(results: CheckResult[]): string {
   if (!results.length) return '';
   const icon = (r: CheckResult) => (r.ok ? '✅' : r.required ? '❌' : '⚠️');
-  const status = (r: CheckResult) => (r.ok ? 'passed' : r.timedOut ? 'timed out' : `failed (exit ${r.exitCode ?? '?'})`);
+  const status = (r: CheckResult) => r.status ?? (r.ok ? 'passed' : r.timedOut ? 'timed out' : `failed (exit ${r.exitCode ?? '?'})`);
   return [
     '### Checks',
     ...results.map((r) => {
       const head = `${icon(r)} **${r.name}** — ${status(r)}`;
+      if (r.detail) return `${head}\n\n${r.detail}\n`;
       if (r.ok && !r.output) return head;
       return `${head}\n<details><summary>output</summary>\n\n\`\`\`\n${r.output.replace(/```/g, "'''")}\n\`\`\`\n</details>`;
     }),

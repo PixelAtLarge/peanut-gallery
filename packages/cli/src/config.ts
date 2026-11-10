@@ -50,7 +50,16 @@ export interface PeanutGalleryConfig {
    * that no stylesheet defines (skipped automatically for Tailwind/UnoCSS projects). Default on,
    * report-only; set to "required" to open such PRs as drafts, or false to turn it off.
    */
-  builtinChecks?: { undefinedClasses?: boolean | 'required' };
+  builtinChecks?: {
+    undefinedClasses?: boolean | 'required';
+    /**
+     * Default true: after the agent's change, a second, cheap Claude pass (models.interpret)
+     * compares the PR description with the diff and lists what doesn't match: things described
+     * but not in the code, changes not described, reviewer requests not addressed. "required"
+     * opens the PR as a draft when something doesn't match; false skips it.
+     */
+    description?: boolean | 'required';
+  };
   /** Single model for everything (overridden by `models`). */
   model?: string;
   /** Per-stage models. Defaults: interpret/variants/votes → claude-haiku-5-5; apply (coding agent) → claude-sonnet-5-5. Try claude-opus-5-5 for large codebases. */

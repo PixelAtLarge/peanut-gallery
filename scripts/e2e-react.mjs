@@ -291,7 +291,14 @@ const fakeImplement = async (p, anns, { cwd }) => {
   return { ok: true, summary: `Stand-in agent: ${p.title}.`, costUsd: 0, turns: 1, denied: [] };
 };
 if (!REAL_AI) process.env.ANTHROPIC_API_KEY ??= 'stand-in';
-const runs = await lib.applyCommand({ proposals, issues: [ours, theirs], port: 4440, ...(REAL_AI ? {} : { implement: fakeImplement }) });
+// Stand-in description check (the real one needs Claude; scripts/e2e-description.mjs tests it):
+// the promo change "doesn't match its description", the rest do.
+const fakeDescribe = async (_dir, _base, input) => {
+  const off = /promo/i.test(input.title);
+  const findings = off ? [{ kind: 'request-missed', detail: 'The reviewer asked for the new total too; only the amount saved is shown.' }] : [];
+  return { name: 'Description matches the code', ok: !off, required: false, exitCode: off ? 1 : 0, timedOut: false, output: '', durationMs: 1, status: off ? '1 thing to look at' : 'checked against the diff', detail: off ? lib.findingsMarkdown(findings) : undefined, findings };
+};
+const runs = await lib.applyCommand({ proposals, issues: [ours, theirs], port: 4440, ...(REAL_AI ? {} : { implement: fakeImplement, describeCheck: fakeDescribe }) });
 // Find each change by the note it addresses (real Claude may word titles differently,
 // merge notes, or also propose the photo change).
 const runFor = (ann) => runs.find((r) => proposals.find((p) => p.id === r.proposalId)?.annotationIds.includes(ann.id));
@@ -319,6 +326,11 @@ const promoRun = runFor(promo);
 const promoShot = shotFor(promoRun, promo);
 check('promo change: typing replayed (stand-in email), close-up of the message before and after', promoShot && promoShot.label.includes('after filling in “Email” → typing “PLANTS10” into “Promo code” → pressing Enter') && shotWidth(promoShot.before, promoRun) > 0 && shotWidth(promoShot.before, promoRun) < 1280 && shotWidth(promoShot.after, promoRun) < 1280, `${promoShot?.label} · ${shotWidth(promoShot?.before, promoRun)}px / ${shotWidth(promoShot?.after, promoRun)}px wide`);
 const promoPr = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${promoRun.prNumber}`)).body;
+if (!REAL_AI) {
+  const payPr = JSON.parse(gh('api', `repos/${SANDBOX}/pulls/${payRun.prNumber}`)).body;
+  check('a PR whose description matches says so under Checks', payPr.includes('✅ **Description matches the code** — checked against the diff') && !payPr.includes('may not match'));
+  check('a PR whose description doesn’t match warns under “What changed” and lists why', promoPr.includes('> ⚠️ This description may not match the code') && promoPr.includes('**Reviewer request not addressed**\n- The reviewer asked for the new total'));
+}
 const compareHtml = [promoRun.comparePath, promoRun.localCompareDir && join(promoRun.localCompareDir, 'compare.html'), join(DIR, '.peanut-gallery/compare', promoRun.proposalId, 'compare.html')].filter(Boolean).map((f) => (existsSync(f) ? f : join(DIR, f))).find((f) => existsSync(f));
 const compareText = compareHtml ? readFileSync(compareHtml, 'utf8') : '';
 check('the comparison page says how the shots were reached, and the email is nowhere', compareText.includes('typing “PLANTS10” into “Promo code”') && !compareText.includes('private.invalid') && !promoPr.includes('private.invalid'), compareHtml ?? 'no compare.html found');

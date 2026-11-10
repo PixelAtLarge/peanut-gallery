@@ -11,6 +11,7 @@ import { authHint, hasCredentials } from '../llm.js';
 import { auditChangedFiles } from '../policy.js';
 import { effectivePolicy, readProjectGuidance } from '../design.js';
 import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
+import { descriptionCheck } from '../description-check.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { applySummaryMarkdown, jobSummary } from '../ci.js';
@@ -33,6 +34,8 @@ export interface ApplyOptions {
   port?: number;
   /** Swap the coding agent (tests/e2e harness). Defaults to the Claude Agent SDK. */
   implement?: typeof implementProposal;
+  /** Swap the description check (tests/e2e harness). Defaults to a Claude pass over the diff. */
+  describeCheck?: typeof descriptionCheck;
   proposals?: Proposal[];
   issues?: FeedbackIssue[];
 }
@@ -267,6 +270,20 @@ export async function runProposal(
     if (r) checkResults.push(r);
   }
   if (cfg.checks?.length) checkResults.push(...(await runChecks(cfg.checks, wt, { changedFiles: touched, base: cfg.baseBranch, proposalId: p.id })));
+  // Does the description say what the code does? Read by a reviewer who trusts it.
+  const describeSetting = cfg.builtinChecks?.description ?? true;
+  const described = describeSetting
+    ? await (opts.describeCheck ?? descriptionCheck)(wt, cfg.baseBranch, {
+        title: p.title,
+        plan: p.summary,
+        summary: agent.summary,
+        requests: annotations.filter((a) => p.annotationIds.includes(a.id)).map((a) => a.text.split('\n')[0]),
+        model: cfg.models.interpret,
+        required: describeSetting === 'required',
+      })
+    : null;
+  if (described) checkResults.push(described);
+  else if (describeSetting) console.log(pc.dim('  description check skipped (no diff, or Claude unavailable)'));
   if (checkResults.length) {
     for (const r of checkResults) {
       const line = `  ${r.ok ? '✔' : r.required ? '✖' : '⚠'} check: ${r.name}${r.ok ? '' : r.timedOut ? ' (timed out)' : ` (exit ${r.exitCode ?? '?'})`}`;
@@ -356,6 +373,7 @@ export async function runProposal(
       '',
       '### What changed',
       agent.summary,
+      described && !described.ok ? `\n> ⚠️ This description may not match the code. See **Description matches the code** under Checks.` : '',
       agent.denied.length ? `\n<details><summary>${agent.denied.length} tool call(s) blocked by policy</summary>\n\n${agent.denied.map((d) => `- ${d}`).join('\n')}\n</details>` : '',
       usingDs || guidance.files.length
         ? `\n<sub>Built with ${[usingDs ? 'the configured design system' : '', guidance.files.length ? `guidance from ${guidance.files.join(', ')}` : ''].filter(Boolean).join(' and ')}.</sub>`
