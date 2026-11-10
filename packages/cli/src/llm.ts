@@ -8,7 +8,22 @@ import Anthropic from '@anthropic-ai/sdk';
  *  2. Otherwise → the Claude Agent SDK, which reuses an existing Claude Code login
  *     (`claude login`), so anyone with Claude Code installed needs no extra setup.
  */
+/**
+ * Strip whitespace from Claude credentials in the environment. A token pasted into a CI secret
+ * often picks up a line break, which makes every request fail as "credentials missing".
+ */
+export function tidyCredentials(env: NodeJS.ProcessEnv = process.env): void {
+  for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'] as const) {
+    const v = env[k];
+    if (v === undefined) continue;
+    const clean = v.replace(/\s+/g, '');
+    if (clean) env[k] = clean;
+    else delete env[k];
+  }
+}
+
 export async function completeText(opts: { system: string; user: string; model: string; maxTokens?: number; client?: Anthropic }): Promise<string> {
+  tidyCredentials();
   if (opts.client || process.env.ANTHROPIC_API_KEY) {
     const client = opts.client ?? new Anthropic();
     const msg = await client.messages.create({
@@ -126,6 +141,7 @@ export function authHint(): string {
 
 /** True if either auth route looks available (cheap check, no network). */
 export async function hasCredentials(): Promise<boolean> {
+  tidyCredentials();
   if (process.env.ANTHROPIC_API_KEY) return true;
   const { existsSync } = await import('node:fs');
   const { homedir } = await import('node:os');

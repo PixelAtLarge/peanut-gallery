@@ -102,11 +102,14 @@ runs:
       working-directory: ${{ github.action_path }}
       run: npx playwright install --with-deps chromium
 
-    # Past runs make cost estimates better and let votes find proposals posted earlier.
+    # Past runs make cost estimates better and let votes find proposals posted earlier;
+    # replies Claude already read aren't read (or paid for) again.
     - name: Restore run history
       uses: actions/cache@v5
       with:
-        path: ${{ inputs.working-directory }}/.peanut-gallery/runs.json
+        path: |
+          ${{ inputs.working-directory }}/.peanut-gallery/runs.json
+          ${{ inputs.working-directory }}/.peanut-gallery/vote-readings.json
         key: peanut-gallery-runs-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: peanut-gallery-runs-
 

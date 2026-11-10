@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { isPhoneViewport, stepsPhrase, type Proposal } from '@pixelatlarge/peanut-gallery-core';
 import type { FlatAnnotation } from './interpret.js';
 import { evaluateToolUse, type AgentPolicy } from './policy.js';
+import { tidyCredentials } from './llm.js';
 import { designSystemBrief, type DesignSystemConfig } from './design.js';
 
 export interface AgentRunResult {
@@ -37,6 +38,7 @@ export async function implementProposal(
     onProgress?: (line: string) => void;
   },
 ): Promise<AgentRunResult> {
+  tidyCredentials();
   const anns = annotations.filter((a) => proposal.annotationIds.includes(a.id));
   const ds = designSystemBrief(opts.designSystem);
   const guidance = opts.projectGuidance?.text?.trim();

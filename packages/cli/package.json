@@ -1,6 +1,6 @@
 {
   "name": "peanut-gallery",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "CLI: pull feedback on your prototype or web app from GitHub Issues, let Claude propose and implement design updates, generate before/after comparisons, and open PRs.",
   "keywords": [
     "prototype",
@@ -40,7 +40,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.0",
     "@anthropic-ai/sdk": "^1.0.0",
-    "@pixelatlarge/peanut-gallery-core": "0.1.4",
+    "@pixelatlarge/peanut-gallery-core": "0.1.5",
     "commander": "^13.0.0",
     "picocolors": "^1.1.0",
     "playwright": "^1.50.0"

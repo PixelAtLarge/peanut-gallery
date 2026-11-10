@@ -203,7 +203,7 @@ Commands run in the change's worktree with `PEANUT_GALLERY_CHANGED_FILES` (newli
 | `variants <id> [-n 1–3] [--note "…"]` | Not happy with the before/after? Generate 1–3 genuinely different directions for the same proposal (Claude is told what was already tried and your note), build each on its own branch + PR, and post one combined **before / A / B / C** image to the issue. Reviewers reply with a letter; `votes` tallies it. Re-run with a new note for another round (labels become A2, B2…). |
 | `decide <id> <n>` | Resolve a contested proposal by picking one of its positions, then `apply --only <id>`. |
 | `review [-y] [--new] [--issue n…] [--dry-run]` | The three above in sequence with a confirmation. |
-| `votes [--label] [--local]` | Tallies 👍/❤️/🚀 (after) vs 👎/😕 (before) on the comparison comments plus replies ("after", "keep the original", …). It finds comparisons from your local history and from the comments on GitHub, so it works on any machine. `--label` applies `peanut-gallery:accepted` / `rejected` and comments on the PR, once per verdict. |
+| `votes [--label] [--local] [--keywords]` | Tallies 👍/❤️/🚀 (after) vs 👎/😕 (before) on the comparison comments, plus replies. Plain replies ("after", "B") are read with keywords; Claude reads the rest (see below). It finds comparisons from your local history and from the comments on GitHub, so it works on any machine. `--label` applies `peanut-gallery:accepted` / `rejected` and comments on the PR with the verdict and what reviewers asked for. `--keywords` never calls Claude. |
 | `compare <id>` | Opens the interactive before/after page for a proposal locally. |
 
 ### Run it automatically (GitHub Action)
@@ -280,7 +280,15 @@ Everything is reviewable and reversible: proposals are a JSON file you can edit 
 
 ### The reviewer's second look
 
-After `apply`, each feedback issue gets a comment with the side-by-side image, the PR link and a vote prompt. Reviewers react or reply in plain language; `votes` reads it back. For a live "after", point reviewers at the PR's preview deployment (Vercel/Netlify/Pages) with `?peanut` — they can annotate the new version and the loop runs again.
+After `apply`, each feedback issue gets a comment with the side-by-side image, the PR link and a vote prompt. Reviewers react or reply in plain language; `votes` reads it back.
+
+**How replies are read.**
+- **Plain votes** ("after", "👍 ship it", "B please") are read with keywords.
+- **Anything more goes to Claude** (`models.interpret`, a small, cheap model): "after, but keep the old green", "neither, I'd rather see the total", a question, or a reply on an issue with several proposals that doesn't say which one it means.
+- **One proposal per reply.** Claude decides which proposal the reply is about, counting it only once. "Neither" counts against shipping that version, and a question isn't a vote.
+- **Requests are kept.** Anything else the reviewer asks for is kept in their words, listed in the PR verdict ("Reviewers also asked for: keep the old green") and in the Action's job summary.
+- **Each reply is read once.** Readings are cached in `.peanut-gallery/vote-readings.json` (the Action keeps it between runs), so a reply isn't read twice. An edited reply is read again.
+- **Without Claude** (no login, or `"votes": { "reader": "keywords" }`), keywords read every reply. A reply that doesn't say which proposal it means counts for the nearest one above it. For a live "after", point reviewers at the PR's preview deployment (Vercel/Netlify/Pages) with `?peanut` — they can annotate the new version and the loop runs again.
 
 ## Security model
 
@@ -325,5 +333,4 @@ SANDBOX=you/empty-repo node scripts/e2e-react.mjs             # the loop on a Re
 - Replayed steps stay on one page: steps reset when the URL changes (the URL usually carries that state, e.g. `?q=lamp`). States that need a real password or card number can't be replayed; typing into rich-text editors (`contenteditable`) isn't recorded yet.
 - Relay-mode shared pins (see teammates' comments while annotating, +1 instead of re-writing) are the planned next pass.
 - `variants` publishes the combined image to a `peanut-gallery/assets` branch so it can be embedded in issue comments; delete that branch any time.
-- Vote classification is keyword-based; a Claude pass for nuanced replies ("after, but the old colour") is planned.
 - Framework-aware source mapping (React component names/`data-source` attributes) would tighten the agent's edits further.
