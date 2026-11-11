@@ -1,6 +1,6 @@
 {
   "name": "@pixelatlarge/peanut-gallery-core",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Shared types, DOM anchoring, and GitHub issue serialization for peanut-gallery.",
   "keywords": [
     "prototype",

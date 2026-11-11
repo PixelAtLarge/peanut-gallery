@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@pixelatlarge/peanut-gallery-widget": "^0.1.6",
+    "@pixelatlarge/peanut-gallery-widget": "^0.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0"
