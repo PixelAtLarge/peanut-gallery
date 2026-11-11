@@ -105,7 +105,7 @@ describe('config', () => {
   it('fills defaults', () => {
     const c = withDefaults({ repo: 'o/r' });
     expect(c.baseBranch).toBe('main');
-    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto' });
+    expect(c.screenshot).toEqual({ width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto', highlight: true });
     expect(withDefaults({ repo: 'o/r', screenshot: { width: 390 } }).screenshot.width).toBe(390);
   });
 });

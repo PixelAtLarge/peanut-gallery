@@ -152,7 +152,7 @@ export interface ProposalRun {
   prUrl?: string;
   prNumber?: number;
   comparePath?: string;
-  screenshots: { label: string; before: string; after: string }[];
+  screenshots: { label: string; before: string; after: string; /** What visibly changed: none, some (outlined), most. */ change?: 'none' | 'some' | 'most' }[];
   status: 'proposed' | 'decision-needed' | 'applied' | 'pr-opened' | 'accepted' | 'rejected';
 }
 

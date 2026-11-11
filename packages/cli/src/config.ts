@@ -81,11 +81,14 @@ export interface PeanutGalleryConfig {
    * replaying could cause side effects you don't want (e.g. a server wired to a real backend).
    *
    *
+   * `highlight` (default true): outline what visibly changed between before and after, and
+   * warn in the PR when a change made no visible difference.
+   *
    * `phone`: `"auto"` (default) shoots notes left on a phone-size screen at phone size, since
    * that's what the reviewer saw. `true` also shoots every note and page at phone size, next to
    * desktop. `false` is desktop only. `{ "width": 390, "height": 844 }` is `true` at that size.
    */
-  screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean; phone?: PhoneSetting };
+  screenshot?: { width?: number; height?: number; fullPage?: boolean; replayClicks?: boolean; phone?: PhoneSetting; highlight?: boolean };
   /**
    * How `votes` reads replies. "claude" (default): plain votes ("after", "B") are read with
    * keywords; anything more ("after, but keep the old colour", "neither…", a reply that doesn't
@@ -113,7 +116,7 @@ export interface ResolvedConfig extends PeanutGalleryConfig {
   models: { interpret: string; apply: string };
   branchPrefix: string;
   sourceHints: string[];
-  screenshot: { width: number; height: number; fullPage: boolean; replayClicks: boolean; phone: PhoneSetting };
+  screenshot: { width: number; height: number; fullPage: boolean; replayClicks: boolean; phone: PhoneSetting; highlight: boolean };
   resolvedTheme: Theme;
 }
 
@@ -136,7 +139,7 @@ export function withDefaults(cfg: PeanutGalleryConfig): ResolvedConfig {
       interpret: cfg.models?.interpret ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL_INTERPRET ?? 'claude-haiku-5-5',
       apply: cfg.models?.apply ?? cfg.model ?? process.env.PEANUT_GALLERY_MODEL ?? 'claude-sonnet-5-5',
     },
-    screenshot: { width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto', ...(cfg.screenshot ?? {}) },
+    screenshot: { width: 1280, height: 800, fullPage: false, replayClicks: true, phone: 'auto', highlight: true, ...(cfg.screenshot ?? {}) },
     resolvedTheme: resolveTheme(cfg.theme),
   };
 }

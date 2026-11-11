@@ -112,6 +112,8 @@ Each note stores a CSS selector that prefers stable hooks (`data-testid`, `id`, 
 
 **Notes left on a phone get phone-size screenshots.** Each note records the reviewer's screen size. When it's phone size, the issue says so, the agent is told, and the before/after shots for that note are taken at phone size (390×844, a touch phone browser) instead of desktop, plus the page at both sizes. That covers things that only exist on phones, like a sticky bottom bar or a hamburger menu. To shoot everything at both sizes, set `"screenshot": { "phone": true }` (or a size, `{ "width": 375, "height": 667 }`). `false` keeps desktop only.
 
+**What changed is outlined.** Each before/after pair is compared pixel by pixel and the areas that look different are outlined: solid on after, dashed on before. That holds on the comparison page (with a switch to hide the outlines) and on the PR image. Close-ups are lined up first, so when an element grows or shrinks, only what really changed gets outlined, not everything around it that moved. When a close-up shows **no visible change**, it's flagged, and when no screenshot shows a difference, the PR says so: the change may not have taken effect. To turn outlines off, set `"screenshot": { "highlight": false }`.
+
 ## 2. (Optional) Relay for one-click submission
 
 The browser can't hold a GitHub token. If reviewers shouldn't need GitHub accounts, deploy the relay — it's one function that validates the payload and creates the issue.
