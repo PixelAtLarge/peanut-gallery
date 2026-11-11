@@ -165,3 +165,19 @@ export const LABELS = {
 } as const;
 
 export const ISSUE_BLOCK_LANG = 'json peanut-gallery';
+
+/**
+ * A note another reviewer already sent, as the relay shares it (`shareNotes`): enough to pin it
+ * on the page and link to its issue. No steps, no viewport.
+ */
+export interface SharedNote {
+  id: string;
+  text: string;
+  kind?: AnnotationKind;
+  author?: string;
+  anchor: ElementAnchor;
+  pageUrl: string;
+  createdAt: string;
+  issueNumber: number;
+  issueUrl: string;
+}

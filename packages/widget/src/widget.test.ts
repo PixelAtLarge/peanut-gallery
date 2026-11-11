@@ -332,3 +332,115 @@ describe('theme', () => {
     w.destroy();
   });
 });
+
+describe('other reviewers’ notes (relay shareNotes)', () => {
+  const theirs = (over: Record<string, unknown> = {}) => ({
+    id: 'an_sam',
+    text: 'Make it green',
+    kind: 'copy',
+    author: 'Sam Rivera',
+    anchor: { selector: 'button[data-testid="pay"]', tag: 'button', textFingerprint: 'Pay now', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } },
+    pageUrl: location.href,
+    createdAt: 'now',
+    issueNumber: 12,
+    issueUrl: 'https://github.com/owner/repo/issues/12',
+    ...over,
+  });
+  const relayWith = (notes: unknown[]) => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (init?.method === 'POST') return new Response(JSON.stringify({ issueUrl: 'https://github.com/owner/repo/issues/13', issueNumber: 13 }), { status: 201 });
+      return new Response(JSON.stringify({ notes }), { status: 200 });
+    });
+    return calls;
+  };
+
+  it('pins them read-only, with initials, a link to the issue, and a list in the panel', async () => {
+    const calls = relayWith([theirs(), theirs({ id: 'an_mine' }), theirs({ id: 'an_other_page', pageUrl: 'http://localhost:3000/elsewhere', author: 'kim' })]);
+    const w = new PeanutGalleryWidget({
+      repo: 'owner/repo',
+      author: 'anna',
+      relayUrl: 'https://relay.test/notes',
+      relayKey: 'k',
+      session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_mine' }) as never), viewport: { width: 1, height: 1 } }] },
+    }).mount();
+    await frame();
+    const sr = shadow(w);
+    expect(calls[0].url).toBe(`https://relay.test/notes?origin=${encodeURIComponent(location.origin)}`);
+    expect((calls[0].init?.headers as Record<string, string>)['x-peanut-gallery-key']).toBe('k');
+    // Yours stays numbered; theirs shows initials. Your own note (same id) isn't shown twice.
+    const other = sr.querySelectorAll('.pg-pin.pg-other');
+    expect(other).toHaveLength(1);
+    expect(other[0].textContent).toBe('SR');
+    expect(sr.querySelectorAll('.pg-pin:not(.pg-other)')).toHaveLength(1);
+    (other[0] as HTMLButtonElement).click();
+    const pop = sr.querySelector('.pg-theirs')!;
+    expect(pop.textContent).toContain('Sam Rivera · #12');
+    expect(pop.textContent).toContain('Make it green');
+    expect(pop.querySelector('textarea')).toBeNull();
+    expect((pop.querySelector('a') as HTMLAnchorElement).href).toBe('https://github.com/owner/repo/issues/12');
+    (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();
+    await frame();
+    const panel = sr.querySelector('.pg-panel')!;
+    expect(panel.querySelector('h4')!.textContent).toBe('From other reviewers (2)');
+    expect(Array.from(panel.querySelectorAll('.pg-their .pg-meta')).map((m) => m.textContent)).toEqual(['Sam Rivera · this page · #12', 'kim · /elsewhere · #12']);
+    // While picking an element to comment on, their pins let clicks through.
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    expect(sr.querySelector('.pg-pin.pg-other')!.parentElement!.classList.contains('pg-commenting')).toBe(true);
+    (sr.querySelector('[data-role=comment]') as HTMLButtonElement).click();
+    expect(sr.querySelector('.pg-pin.pg-other')!.parentElement!.classList.contains('pg-commenting')).toBe(false);
+    // Hide their pins (remembered), and show them again.
+    (panel.querySelector('.pg-others-head button') as HTMLButtonElement).click();
+    expect(sr.querySelectorAll('.pg-pin.pg-other')).toHaveLength(0);
+    expect(localStorage.getItem('peanut-gallery:hide-others')).toBe('1');
+    (sr.querySelector('.pg-others-head button') as HTMLButtonElement).click();
+    expect(sr.querySelectorAll('.pg-pin.pg-other')).toHaveLength(1);
+    w.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it('fans out pins on the same element so each can be opened; yours stay put', async () => {
+    relayWith([theirs(), theirs({ id: 'b' }), theirs({ id: 'c' })]);
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'mine' }) as never), viewport: { width: 1, height: 1 } }] } }).mount();
+    await frame();
+    const sr = shadow(w);
+    const mine = sr.querySelector('.pg-pin:not(.pg-other)') as HTMLElement;
+    const xs = Array.from(sr.querySelectorAll('.pg-pin.pg-other')).map((p) => parseFloat((p as HTMLElement).style.left));
+    expect(new Set([parseFloat(mine.style.left), ...xs]).size).toBe(4);
+    expect(Math.min(...xs)).toBeGreaterThan(parseFloat(mine.style.left));
+    w.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the relay key with a submission, then shows what was sent as shared', async () => {
+    const calls = relayWith([]);
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', relayUrl: 'https://relay.test/', relayKey: 'k', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_x' }) as never), viewport: { width: 1, height: 1 } }] } }).mount();
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const sr = shadow(w);
+    (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();
+    (sr.querySelector('.pg-panel .pg-primary') as HTMLButtonElement).click();
+    await frame();
+    const post = calls.find((c) => c.init?.method === 'POST')!;
+    expect((post.init!.headers as Record<string, string>)['x-peanut-gallery-key']).toBe('k');
+    // Fetched on mount, on opening the panel, and again after submitting.
+    expect(calls.filter((c) => c.init?.method !== 'POST').length).toBeGreaterThanOrEqual(3);
+    w.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it("doesn't ask outside relay mode, or with showOthers: false, and skips odd links", async () => {
+    let calls = relayWith([]);
+    new PeanutGalleryWidget({ repo: 'owner/repo' }).mount().destroy();
+    new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', showOthers: false }).mount().destroy();
+    await frame();
+    expect(calls).toHaveLength(0);
+    calls = relayWith([theirs({ issueUrl: 'javascript:alert(1)' })]);
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/' }).mount();
+    await frame();
+    (shadow(w).querySelector('.pg-pin.pg-other') as HTMLButtonElement).click();
+    expect(shadow(w).querySelector('.pg-theirs a')).toBeNull();
+    w.destroy();
+    vi.unstubAllGlobals();
+  });
+});

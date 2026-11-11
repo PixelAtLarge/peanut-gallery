@@ -38,5 +38,6 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): RelayOptio
     repo,
     allowedOrigins: env.PEANUT_GALLERY_ORIGINS?.split(',').map((s) => s.trim()),
     sharedKey: env.PEANUT_GALLERY_KEY,
+    shareNotes: env.PEANUT_GALLERY_SHARE_NOTES === 'true' || env.PEANUT_GALLERY_SHARE_NOTES === '1',
   };
 }

@@ -111,3 +111,103 @@ describe('relay as a public endpoint', () => {
     expect(await res.json()).toMatchObject({ error: 'could not reach GitHub' });
   });
 });
+
+describe('shared notes', () => {
+  /** A fake GitHub: open feedback issues, plus whatever the relay creates. */
+  async function github() {
+    const { sessionToIssue } = await import('@pixelatlarge/peanut-gallery-core');
+    const other = { ...session, author: 'sam', annotations: [{ ...session.annotations[0], id: 'an_other', text: 'Make it green', author: 'sam' }] };
+    const elsewhere = { ...session, prototypeUrl: 'https://other.example.com', annotations: [{ ...session.annotations[0], id: 'an_x', pageUrl: 'https://other.example.com/' }] };
+    const issues: { number: number; html_url: string; body: string; pull_request?: unknown }[] = [
+      { number: 7, html_url: 'https://github.com/owner/repo/issues/7', body: sessionToIssue(other).body },
+      { number: 8, html_url: 'https://github.com/owner/repo/issues/8', body: sessionToIssue(elsewhere).body },
+      { number: 9, html_url: 'https://github.com/owner/repo/pull/9', body: sessionToIssue(other).body, pull_request: {} },
+      { number: 10, html_url: 'https://github.com/owner/repo/issues/10', body: 'not ours' },
+    ];
+    const calls: string[] = [];
+    const f = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (init?.method === 'POST') {
+        const { body } = JSON.parse(String(init.body));
+        const n = 11 + issues.length;
+        issues.unshift({ number: n, html_url: `https://github.com/owner/repo/issues/${n}`, body });
+        return new Response(JSON.stringify({ html_url: `https://github.com/owner/repo/issues/${n}`, number: n }), { status: 201 });
+      }
+      return new Response(JSON.stringify(issues), { status: 200 });
+    });
+    return { f, calls };
+  }
+  const get = (headers: Record<string, string> = { origin: 'https://proto.example.com' }, q = '') => new Request(`https://relay.test/${q}`, { method: 'GET', headers });
+
+  it('is off unless shareNotes is set', async () => {
+    const { f } = await github();
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', fetch: f as unknown as typeof fetch });
+    expect((await handle(get())).status).toBe(404);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("returns this site's notes from open feedback issues, not pull requests or other sites", async () => {
+    const { f, calls } = await github();
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', shareNotes: true, fetch: f as unknown as typeof fetch });
+    const res = await handle(get());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    const { notes } = (await res.json()) as { notes: { id: string; author?: string; issueNumber: number; issueUrl: string; text: string }[] };
+    expect(notes.map((n) => [n.id, n.author, n.issueNumber, n.issueUrl])).toEqual([['an_other', 'sam', 7, 'https://github.com/owner/repo/issues/7']]);
+    expect(calls[0]).toBe('GET https://api.github.com/repos/owner/repo/issues?state=open&labels=peanut-gallery%2Cpeanut-gallery%3Afeedback&per_page=100&page=1');
+    // No steps or viewport in what's shared.
+    expect(Object.keys(notes[0]).sort()).toEqual(['anchor', 'author', 'createdAt', 'id', 'issueNumber', 'issueUrl', 'pageUrl', 'text']);
+    // A client without an Origin header says which site.
+    const q = (await (await handle(get({}, '?origin=https://other.example.com'))).json()) as { notes: { id: string }[] };
+    expect(q.notes.map((n) => n.id)).toEqual(['an_x']);
+  });
+
+  it('caches, and a new submission shows up for the next reviewer', async () => {
+    const { f, calls } = await github();
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', shareNotes: true, notesCacheSeconds: 0.05, fetch: f as unknown as typeof fetch });
+    await Promise.all([handle(get()), handle(get()), handle(get())]);
+    expect(calls.filter((c) => c.startsWith('GET'))).toHaveLength(1);
+    await handle(get());
+    expect(calls.filter((c) => c.startsWith('GET'))).toHaveLength(1);
+    expect((await handle(post({ session }))).status).toBe(201);
+    let { notes } = (await (await handle(get())).json()) as { notes: { id: string }[] };
+    expect(notes.map((n) => n.id).sort()).toEqual(['an_1', 'an_other']);
+    // Once GitHub's list has it, it's there once, not twice.
+    await new Promise((r) => setTimeout(r, 80));
+    ({ notes } = (await (await handle(get())).json()) as { notes: { id: string }[] });
+    expect(notes.map((n) => n.id).sort()).toEqual(['an_1', 'an_other']);
+    expect(calls.filter((c) => c.startsWith('GET'))).toHaveLength(2);
+  });
+
+  it("shares a new submission straight away, even before GitHub's issue list includes it", async () => {
+    const { f, calls } = await github();
+    // GitHub's list lags: it never shows the new issue here.
+    const lagging = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return f(url, init);
+      const res = await f(url, init);
+      const list = (await res.json()) as { number: number }[];
+      return new Response(JSON.stringify(list.filter((i) => i.number < 11)), { status: 200 });
+    });
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', shareNotes: true, fetch: lagging as unknown as typeof fetch });
+    await handle(get());
+    expect((await handle(post({ session: { ...session, author: 'anna' } }))).status).toBe(201);
+    const { notes } = (await (await handle(get())).json()) as { notes: { id: string; author?: string; issueNumber: number }[] };
+    expect(notes.map((n) => [n.id, n.author])).toEqual([['an_other', 'sam'], ['an_1', 'anna']]);
+    expect(calls.filter((c) => c.startsWith('GET'))).toHaveLength(1);
+  });
+
+  it('keeps the same gates as submitting: allowed origins and the shared key', async () => {
+    const { f } = await github();
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', shareNotes: true, allowedOrigins: ['https://proto.example.com'], sharedKey: 'k', fetch: f as unknown as typeof fetch });
+    expect((await handle(get({ origin: 'https://evil.example.com', 'x-peanut-gallery-key': 'k' }))).status).toBe(403);
+    expect((await handle(get({ origin: 'https://proto.example.com' }))).status).toBe(401);
+    expect((await handle(get({ origin: 'https://proto.example.com', 'x-peanut-gallery-key': 'k' }))).status).toBe(200);
+    const pre = await handle(new Request('https://relay.test/', { method: 'OPTIONS', headers: { origin: 'https://proto.example.com' } }));
+    expect(pre.headers.get('access-control-allow-methods')).toContain('GET');
+  });
+
+  it('says so when GitHub fails', async () => {
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', shareNotes: true, fetch: (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch });
+    expect((await handle(get())).status).toBe(502);
+  });
+});

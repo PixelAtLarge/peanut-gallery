@@ -13,6 +13,7 @@ import {
   type Annotation,
   type AnnotationKind,
   type ReviewSession,
+  type SharedNote,
   resolveTheme,
   themeToCssVars,
   DEFAULT_FONTS_URL,
@@ -78,6 +79,13 @@ export interface PeanutGalleryConfig {
    */
   mode?: 'issue-url' | 'relay' | 'auto';
   relayUrl?: string;
+  /** Sent as `x-peanut-gallery-key`, for a relay set up with `sharedKey`. */
+  relayKey?: string;
+  /**
+   * In relay mode, show other reviewers' notes on the page (default true), if the relay shares
+   * them (`shareNotes`). Their pins are read-only and link to their issues.
+   */
+  showOthers?: boolean;
   /** Labels to apply. Defaults to ["peanut-gallery", "peanut-gallery:feedback"]. */
   labels?: string[];
   /** Reviewer name; if omitted the widget asks once and remembers it. */
@@ -151,6 +159,9 @@ export class PeanutGalleryWidget {
   private highlight!: HTMLElement;
   private pinsLayer!: HTMLElement;
   private panel: HTMLElement | null = null;
+  /** Notes other reviewers already sent (relay `shareNotes`). */
+  private others: SharedNote[] = [];
+  private othersHidden = store.get('peanut-gallery:hide-others') === '1';
   private composer: HTMLElement | null = null;
   private toolbar!: HTMLElement;
   private raf = 0;
@@ -235,7 +246,34 @@ export class PeanutGalleryWidget {
     }
     this.renderPins();
     this.updateCount();
+    void this.loadOthers();
     return this;
+  }
+
+  private relayHeaders(): Record<string, string> {
+    return this.cfg.relayKey ? { 'x-peanut-gallery-key': this.cfg.relayKey } : {};
+  }
+
+  /** Fetch other reviewers' notes from the relay. Quietly does nothing if it doesn't share them. */
+  private async loadOthers() {
+    if (this.effectiveMode() !== 'relay' || this.cfg.showOthers === false || !this.cfg.relayUrl || this.destroyed) return;
+    try {
+      const u = new URL(this.cfg.relayUrl, location.href);
+      u.searchParams.set('origin', location.origin);
+      const res = await fetch(u.toString(), { headers: this.relayHeaders() });
+      if (!res.ok) return;
+      const data = (await res.json()) as { notes?: unknown };
+      const mine = new Set(this.session.annotations.map((a) => a.id));
+      this.others = (Array.isArray(data.notes) ? (data.notes as SharedNote[]) : []).filter(
+        (n) => n && typeof n.text === 'string' && typeof n.pageUrl === 'string' && typeof n.anchor?.selector === 'string' && !mine.has(n.id),
+      );
+      if (this.destroyed) return;
+      this.pinsSignature = '';
+      this.renderPins();
+      if (this.panel) this.renderPanel();
+    } catch {
+      /* relay unreachable or not sharing: the review works the same without them */
+    }
   }
 
   private onLocationChange = () => {
@@ -336,6 +374,8 @@ export class PeanutGalleryWidget {
     btn.classList.toggle('pg-active', m === 'commenting');
     btn.textContent = m === 'commenting' ? 'Click an element… (Esc)' : 'Comment';
     document.body.style.cursor = m === 'commenting' ? 'crosshair' : '';
+    // While picking an element, other reviewers' pins step back so they don't cover it.
+    this.pinsLayer.classList.toggle('pg-commenting', m === 'commenting');
     if (m === 'idle') this.hideHighlight();
   }
 
@@ -538,6 +578,37 @@ export class PeanutGalleryWidget {
     ta.focus();
   }
 
+  /** Another reviewer's note: read-only, with a link to its issue. */
+  private openTheirs(note: SharedNote, clientX: number, clientY: number) {
+    this.closeComposer();
+    const box = el('div', 'pg-composer pg-theirs');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', `Note from ${note.author ?? 'another reviewer'}`);
+    const head = el('div', 'pg-meta', `${note.author ?? 'Another reviewer'} · #${note.issueNumber}`);
+    const text = el('div', 'pg-text');
+    if (note.kind) text.append(el('span', 'pg-kind', note.kind));
+    text.append(note.text);
+    const row = el('div', 'pg-row');
+    if (/^https:\/\//.test(note.issueUrl)) {
+      const link = el('a', 'pg-link', 'Open issue') as HTMLAnchorElement;
+      link.href = note.issueUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      row.append(link);
+    }
+    const close = el('button', 'pg-btn pg-ghost', 'Close') as HTMLButtonElement;
+    close.onclick = () => this.closeComposer();
+    row.append(el('span', 'pg-spacer'), close);
+    box.append(head, text, row);
+    const x = Math.min(clientX + 12, innerWidth - 312) + scrollX;
+    const y = Math.min(clientY + 12, innerHeight - 160) + scrollY;
+    box.style.left = `${Math.max(8, x)}px`;
+    box.style.top = `${Math.max(8, y)}px`;
+    this.root.append(box);
+    this.composer = box;
+    close.focus();
+  }
+
   private closeComposer() {
     this.composer?.remove();
     this.composer = null;
@@ -557,28 +628,59 @@ export class PeanutGalleryWidget {
 
   private renderPins() {
     const here = this.pageUrl();
-    const placed: { a: Annotation; n: number; x: number; y: number; low: boolean }[] = [];
-    this.session.annotations.forEach((a, i) => {
-      if (normalizePageUrl(a.pageUrl) !== here) return;
-      const { el: target, confidence } = resolveAnchor(a.anchor, document);
+    /** Where a note's pin goes, or null when its element isn't on screen. */
+    const spot = (anchor: Annotation['anchor']) => {
+      const { el: target, confidence } = resolveAnchor(anchor, document);
       // Element not on screen right now (a closed modal, a collapsed panel, another tab of the
       // UI): leave the pin out rather than floating it over unrelated content. The note is
       // still listed in the panel. Below 0.4 the resolver is only guessing from the old
       // position (whatever now sits where the element was), so treat that as not found too.
-      if (!target || confidence < 0.4) return;
+      if (!target || confidence < 0.4) return null;
       const vis = (target as Element & { checkVisibility?: () => boolean }).checkVisibility;
-      if (typeof vis === 'function' && !vis.call(target)) return;
+      if (typeof vis === 'function' && !vis.call(target)) return null;
       const r = target.getBoundingClientRect();
-      const x = Math.round(r.left + scrollX + r.width * a.anchor.offset.x);
-      const y = Math.round(r.top + scrollY + r.height * a.anchor.offset.y);
-      placed.push({ a, n: i + 1, x, y, low: confidence < 0.5 });
+      return { x: Math.round(r.left + scrollX + r.width * anchor.offset.x), y: Math.round(r.top + scrollY + r.height * anchor.offset.y), low: confidence < 0.5 };
+    };
+    const placed: { a: Annotation; n: number; x: number; y: number; low: boolean }[] = [];
+    this.session.annotations.forEach((a, i) => {
+      if (normalizePageUrl(a.pageUrl) !== here) return;
+      const at = spot(a.anchor);
+      if (at) placed.push({ a, n: i + 1, ...at });
     });
+    const theirs: { note: SharedNote; x: number; y: number }[] = [];
+    if (!this.othersHidden) {
+      // Several notes on one element would stack into one pin you can't get past. Yours stay
+      // exactly where you put them; theirs step aside so each one can be opened.
+      const taken = placed.map((p) => ({ x: p.x, y: p.y }));
+      for (const note of this.others) {
+        if (normalizePageUrl(note.pageUrl) !== here) continue;
+        const at = spot(note.anchor);
+        if (!at) continue;
+        let { x } = at;
+        for (let i = 0; i < 20 && taken.some((t) => Math.abs(t.x - x) < 20 && Math.abs(t.y - at.y) < 20); i++) x += 22;
+        taken.push({ x, y: at.y });
+        theirs.push({ note, x, y: at.y });
+      }
+    }
     // Busy apps mutate the DOM constantly; only rebuild when a pin actually changed, so
     // hover and clicks on pins aren't interrupted.
-    const sig = placed.map((p) => `${p.a.id}:${p.n}:${p.x}:${p.y}:${p.low}:${p.a.text}`).join('|');
-    if (sig === this.pinsSignature && this.pinsLayer.childElementCount === placed.length) return;
+    const sig = [...placed.map((p) => `${p.a.id}:${p.n}:${p.x}:${p.y}:${p.low}:${p.a.text}`), ...theirs.map((t) => `o:${t.note.id}:${t.x}:${t.y}`)].join('|');
+    if (sig === this.pinsSignature && this.pinsLayer.childElementCount === placed.length + theirs.length) return;
     this.pinsSignature = sig;
     this.pinsLayer.replaceChildren(
+      // Theirs first, so yours sit on top where they overlap.
+      ...theirs.map(({ note, x, y }) => {
+        const pin = el('button', 'pg-pin pg-other', initials(note.author));
+        pin.title = `${note.author ? `${note.author}: ` : ''}${note.text}`;
+        pin.setAttribute('aria-label', `Note from ${note.author ?? 'another reviewer'}: ${note.text}`);
+        pin.style.left = `${x}px`;
+        pin.style.top = `${y}px`;
+        pin.onclick = (ev) => {
+          ev.stopPropagation();
+          this.openTheirs(note, x - scrollX, y - scrollY);
+        };
+        return pin;
+      }),
       ...placed.map(({ a, n, x, y, low }) => {
         const pin = el('div', 'pg-pin' + (low ? ' pg-low' : ''), String(n));
         pin.title = a.text;
@@ -605,6 +707,7 @@ export class PeanutGalleryWidget {
     this.panel = el('div', 'pg-panel');
     this.root.append(this.panel);
     this.renderPanel();
+    void this.loadOthers();
   }
 
   private renderPanel() {
@@ -625,6 +728,39 @@ export class PeanutGalleryWidget {
       item.append(text, meta);
       p.append(item);
     });
+    if (this.others.length) {
+      const onPage = this.others.filter((n) => normalizePageUrl(n.pageUrl) === here);
+      const head = el('div', 'pg-others-head');
+      head.append(el('h4', '', `From other reviewers (${this.others.length})`));
+      const toggle = el('button', 'pg-btn pg-ghost pg-small', this.othersHidden ? 'Show their pins' : 'Hide their pins') as HTMLButtonElement;
+      toggle.setAttribute('aria-pressed', String(!this.othersHidden));
+      toggle.onclick = () => {
+        this.othersHidden = !this.othersHidden;
+        store.set('peanut-gallery:hide-others', this.othersHidden ? '1' : '0');
+        this.pinsSignature = '';
+        this.renderPins();
+        this.renderPanel();
+      };
+      head.append(toggle);
+      p.append(head);
+      // This page's first.
+      for (const n of [...onPage, ...this.others.filter((x) => !onPage.includes(x))]) {
+        const item = el('div', 'pg-item pg-their');
+        const text = el('div', 'pg-text');
+        if (n.kind) text.append(el('span', 'pg-kind', n.kind));
+        text.append(n.text);
+        const meta = el('div', 'pg-meta', `${n.author ?? 'someone'} · ${onPage.includes(n) ? 'this page' : pathOf(n.pageUrl)} · `);
+        if (/^https:\/\//.test(n.issueUrl)) {
+          const link = el('a', 'pg-link', `#${n.issueNumber}`) as HTMLAnchorElement;
+          link.href = n.issueUrl;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          meta.append(link);
+        } else meta.append(`#${n.issueNumber}`);
+        item.append(text, meta);
+        p.append(item);
+      }
+    }
     const row = el('div', 'pg-row');
     const clear = el('button', 'pg-btn pg-ghost', 'Clear') as HTMLButtonElement;
     clear.onclick = () => {
@@ -695,7 +831,7 @@ export class PeanutGalleryWidget {
     try {
       const res = await fetch(this.cfg.relayUrl!, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...this.relayHeaders() },
         body: JSON.stringify({ session, labels: this.cfg.labels }),
       });
       if (!res.ok) throw new Error(`Relay responded ${res.status}`);
@@ -703,6 +839,8 @@ export class PeanutGalleryWidget {
       this.resetAfterSubmit();
       this.toast(data.issueUrl ? `Submitted: ${data.issueUrl}` : 'Submitted. Thank you!');
       if (data.issueUrl) window.open(data.issueUrl, '_blank', 'noopener');
+      // What was just sent now shows as shared notes, for you and everyone else.
+      void this.loadOthers();
     } catch (err) {
       this.toast(`Could not submit: ${(err as Error).message}`);
       btn.disabled = false;
@@ -734,6 +872,12 @@ function el(tag: string, className = '', text?: string): HTMLElement {
   if (className) e.className = className;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+/** "AP" for "Anna Poirier", "S" for "sam", "•" for nobody. */
+export function initials(name?: string): string {
+  const parts = (name ?? '').split(/[\s._@-]+/).filter(Boolean);
+  return parts.length ? parts.slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') : '•';
 }
 
 function describe(target: Element): string {
