@@ -1,6 +1,7 @@
 /**
- * Default look: the "Conifer, Prep & Wasabi" palette.
+ * Default look: the "Conifer, Prep & Wasabi" palette on cool sea-glass and gull neutrals.
  * Deep forest and navy grounds, creamy greens, coastal blues, one warm yellow accent, carbon text.
+ * The earlier warm look (linen neutrals) is the "warm" preset.
  *
  * Every role can be overridden (widget: `theme` option; CLI: `theme` in peanut-gallery.config.json),
  * so teams can match their own design system.
@@ -21,6 +22,15 @@ export const PALETTE = {
   white: '#FFFFFF',
   gull: '#A5B0B6',
   carbon: '#22272B',
+} as const;
+
+/** Tints of the cool neutrals. */
+const COOL = {
+  seaGlass50: '#EFF8FF',
+  seaGlass100: '#E1EDF6',
+  gull100: '#E6ECEF',
+  gull200: '#CFD9DF',
+  gull300: '#B5C0C5',
 } as const;
 
 export interface Theme {
@@ -68,12 +78,13 @@ export interface Theme {
   fontMono: string;
 }
 
-export const DEFAULT_THEME: Theme = {
-  bg: PALETTE.linen,
+/** The default: cool sea-glass page, gull lines and ghost buttons. */
+export const COOL_THEME: Theme = {
+  bg: COOL.seaGlass100,
   surface: PALETTE.white,
   text: PALETTE.carbon,
   muted: '#5A6268',
-  line: '#DEDCCB',
+  line: COOL.gull200,
   heading: PALETTE.conifer,
   primary: PALETTE.emerald,
   primaryHover: '#006340', // emerald 700
@@ -91,11 +102,11 @@ export const DEFAULT_THEME: Theme = {
   onChip: PALETTE.prep,
   count: PALETTE.pistachio,
   onCount: PALETTE.conifer,
-  ghost: '#EDEBE3', // linen 100
-  ghostHover: '#DBD8CA', // linen 200
+  ghost: COOL.gull100,
+  ghostHover: COOL.gull200,
   link: PALETTE.prep,
   toast: PALETTE.prep,
-  onToast: PALETTE.linen,
+  onToast: COOL.seaGlass50,
   danger: '#F6E3DF',
   onDanger: '#9B3426',
   success: PALETTE.emerald,
@@ -105,12 +116,36 @@ export const DEFAULT_THEME: Theme = {
   fontMono: '"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace',
 };
 
+/** The original warm look: linen page, warm lines and ghost buttons. `theme: "warm"`. */
+export const WARM_THEME: Theme = {
+  ...COOL_THEME,
+  bg: PALETTE.linen,
+  line: '#DEDCCB',
+  ghost: '#EDEBE3', // linen 100
+  ghostHover: '#DBD8CA', // linen 200
+  onToast: PALETTE.linen,
+};
+
+export const DEFAULT_THEME: Theme = COOL_THEME;
+
+export const THEME_PRESETS = { cool: COOL_THEME, warm: WARM_THEME } as const;
+export type ThemePreset = keyof typeof THEME_PRESETS;
+
+/**
+ * What `theme` accepts: a preset name, overrides of the default, or both
+ * (`{ preset: "warm", primary: "#5b3df5" }`).
+ */
+export type ThemeInput = ThemePreset | (Partial<Theme> & { preset?: ThemePreset });
+
 /** Google Fonts stylesheet for the default type (Manrope, Young Serif, JetBrains Mono). */
 export const DEFAULT_FONTS_URL =
   'https://fonts.googleapis.com/css2?family=Young+Serif&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
 
-export function resolveTheme(overrides?: Partial<Theme>): Theme {
-  return { ...DEFAULT_THEME, ...(overrides ?? {}) };
+export function resolveTheme(input?: ThemeInput | null): Theme {
+  if (!input) return { ...DEFAULT_THEME };
+  if (typeof input === 'string') return { ...(THEME_PRESETS[input] ?? DEFAULT_THEME) };
+  const { preset, ...overrides } = input;
+  return { ...(preset ? (THEME_PRESETS[preset] ?? DEFAULT_THEME) : DEFAULT_THEME), ...overrides };
 }
 
 const kebab = (s: string) => s.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());

@@ -326,7 +326,21 @@ describe('theme', () => {
     w.destroy();
   });
 
-  it('only loads fonts when asked', () => {
+  it('uses the cool look by default, and the warm one as a preset', () => {
+    const css = (theme?: never) => {
+      const w = new PeanutGalleryWidget({ repo: 'owner/repo', ...(theme ? { theme } : {}) }).mount();
+      const t = document.querySelector('peanut-gallery')!.shadowRoot!.querySelector('style')!.textContent!;
+      w.destroy();
+      return t;
+    };
+    expect(css()).toContain('--pg-bg: #E1EDF6;');
+    expect(css('warm' as never)).toContain('--pg-bg: #F6F3E4;');
+    const mixed = css({ preset: 'warm', primary: '#ff0000' } as never);
+    expect(mixed).toContain('--pg-bg: #F6F3E4;');
+    expect(mixed).toContain('--pg-primary: #ff0000;');
+  });
+
+    it('only loads fonts when asked', () => {
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', loadFonts: true }).mount();
     expect(document.querySelectorAll('link[href*="fonts.googleapis.com"]')).toHaveLength(1);
     w.destroy();
