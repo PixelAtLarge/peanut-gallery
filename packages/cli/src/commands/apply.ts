@@ -14,6 +14,7 @@ import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { descriptionCheck } from '../description-check.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
+import { visualDiff, type VisualDiff } from '../visual-diff.js';
 import { applySummaryMarkdown, jobSummary } from '../ci.js';
 import { expandHeaders, normalizePreview, previewEnabled, productionUrl, waitForPreview } from '../preview.js';
 import { captureShots, renderHtmlToPng, type ShotResult, type ShotTarget } from '../screenshots.js';
@@ -319,16 +320,29 @@ export async function runProposal(
     const shot = { ...cfg.screenshot, phone: { width: phone.width, height: phone.height }, outlineColor: cfg.resolvedTheme.accent };
     const b = await captureShots(beforeUrl, targets, outDir, { ...shot, prefix: 'before' });
     const a = await captureShots(afterUrl, targets, outDir, { ...shot, prefix: 'after', headers: afterHeaders });
-    const pairs: ComparePair[] = targets.map((t, i) => ({
-      label: shotLabel(t, b[i], a[i]),
-      before: relative(outDir, b[i].file),
-      after: relative(outDir, a[i].file),
-      ...(t.phone ? { phone: true } : {}),
-    }));
+    const pairs: ComparePair[] = targets.map((t, i) => {
+      let diff: VisualDiff | undefined;
+      if (cfg.screenshot.highlight !== false) {
+        try {
+          diff = visualDiff(b[i].file, a[i].file);
+        } catch {
+          // A shot that couldn't be read just goes without outlines.
+        }
+      }
+      return {
+        label: shotLabel(t, b[i], a[i]),
+        before: relative(outDir, b[i].file),
+        after: relative(outDir, a[i].file),
+        ...(t.phone ? { phone: true } : {}),
+        ...(diff ? { diff } : {}),
+      };
+    });
+    const unchanged = pairs.filter((x) => x.diff?.verdict === 'none').length;
+    if (unchanged) console.log(pc.yellow(unchanged === pairs.length ? '  ⚠ no visible difference in the screenshots' : `  ⚠ no visible difference in ${unchanged} of ${pairs.length} screenshots`));
     writeFileSync(join(outDir, 'compare.html'), renderComparePage(p, pairs, { repo: cfg.repo, issueNumbers: p.issueNumbers }, cfg.resolvedTheme));
     writeFileSync(join(outDir, 'summary.html'), renderSummaryPage(p, pairs, cfg.resolvedTheme));
     await renderHtmlToPng(join(outDir, 'summary.html'), join(outDir, 'summary.png'));
-    record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after }));
+    record.screenshots = pairs.map((x) => ({ label: x.label, before: x.before, after: x.after, ...(x.diff ? { change: x.diff.verdict } : {}) }));
     record.targetLabels = targets.map((t) => t.label);
     record.comparePath = relative(wt, join(outDir, 'compare.html'));
     // keep a local copy so `compare` and `variants` can work without checking out the branch
@@ -364,7 +378,7 @@ export async function runProposal(
   if (opts.pr !== false) {
     await git(['push', '-u', 'origin', branch, '--force'], wt);
     const bodyWith = (img: string, note = '') => [
-      `${img}${note ? `${note}\n\n` : ''}## ${p.title}`,
+      `${img}${note ? `${note}\n\n` : ''}${img ? visibleChangeNote(record.screenshots) : ''}## ${p.title}`,
       `**${supportLine(p)}**`,
       '',
       p.summary,
@@ -580,4 +594,19 @@ export function slug(s: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 40);
+}
+
+/**
+ * A warning for the PR when screenshots show no visible difference: the change may not have
+ * taken effect (a class with no styles, a component that isn't rendered there, a cached build).
+ */
+export function visibleChangeNote(shots: { label: string; change?: 'none' | 'some' | 'most' }[] | undefined): string {
+  const read = (shots ?? []).filter((s) => s.change);
+  if (!read.length) return '';
+  const none = read.filter((s) => s.change === 'none');
+  if (none.length === read.length) return `> ⚠️ The screenshots show no visible difference between before and after. The change may not have taken effect.\n\n`;
+  // A close-up of the element a note is about that didn't change is worth a look; whole pages often don't change.
+  const closeUps = none.filter((s) => !s.label.startsWith('Page '));
+  if (!closeUps.length) return '';
+  return `> ⚠️ No visible difference in ${closeUps.map((s) => `“${s.label.split(' — ')[0]}”`).join(', ')}.\n\n`;
 }

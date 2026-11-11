@@ -338,6 +338,11 @@ const barRun = runFor(bar);
 const barShot = barRun?.screenshots?.find((s) => s.label.startsWith('div') || s.label.startsWith('span'));
 check('phone note: close-up shot at phone size, of the bar only phones have', barShot && barShot.label.endsWith('· phone') && !barShot.label.includes('full page') && shotWidth(barShot.before, barRun) > 0 && shotWidth(barShot.before, barRun) <= 390 && shotWidth(barShot.after, barRun) <= 390, `${barShot?.label} · ${shotWidth(barShot?.before, barRun)}px / ${shotWidth(barShot?.after, barRun)}px wide`);
 check('…plus the page at both sizes', ['Page / ', 'Page / · phone'].every((l) => barRun?.screenshots?.some((s) => `${s.label} `.startsWith(l))) , barRun?.screenshots?.map((s) => s.label).join(' | '));
+const changeOf = (run, starts) => run?.screenshots?.find((x) => x.label.startsWith(starts))?.change;
+check('changes are outlined on the close-ups (pay button, dialog, promo message, phone bar)', [[payRun, 'button'], [modalRun, 'h2'], [promoRun, 'p'], [barRun, 'span']].every(([r, t]) => ['some', 'most'].includes(changeOf(r, t))), [[payRun, 'button'], [modalRun, 'h2'], [promoRun, 'p'], [barRun, 'span']].map(([r, t]) => changeOf(r, t)).join(', '));
+check('the phone-only bar change shows no visible change on the desktop page shot', barRun?.screenshots?.find((x) => x.label === 'Page /')?.change === 'none', barRun?.screenshots?.map((x) => `${x.label}: ${x.change}`).join(' | '));
+const promoCompare = readFileSync(join(DIR, promoRun.localCompareDir, 'compare.html'), 'utf8');
+check('the comparison page draws the outlines', /class="hl hl-after" style="left:[\d.]+%/.test(promoCompare) && promoCompare.includes('class="hl-toggle"'));
 check('desktop notes stay desktop-only', [payRun, modalRun].every((r) => r?.screenshots?.every((s) => !s.label.includes('phone'))));
 
 summary();

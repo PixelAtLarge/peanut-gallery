@@ -1,4 +1,5 @@
 import { DEFAULT_FONTS_URL, DEFAULT_THEME, themeToCssVars, type Proposal, type Theme } from '@pixelatlarge/peanut-gallery-core';
+import { diffNote, type Box, type VisualDiff } from './visual-diff.js';
 
 export interface ComparePair {
   label: string;
@@ -6,7 +7,30 @@ export interface ComparePair {
   after: string;
   /** Shot at phone size: shown at phone width instead of stretched across the column. */
   phone?: boolean;
+  /** What visibly changed between the two (outlined on the images). */
+  diff?: VisualDiff;
 }
+
+const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
+/** Outlines over an image, one per changed area. */
+const marks = (boxes: Box[] | undefined, kind: 'before' | 'after') =>
+  (boxes ?? []).map((b) => `<i class="hl hl-${kind}" style="left:${pct(b.x)};top:${pct(b.y)};width:${pct(b.w)};height:${pct(b.h)}"></i>`).join('');
+/** An image with its change outlines. */
+const shot = (src: string, alt: string, boxes: Box[] | undefined, kind: 'before' | 'after') => `<span class="shot"><img src="${esc(src)}" alt="${esc(alt)}">${marks(boxes, kind)}</span>`;
+/**
+ * "2 changes outlined" / "No visible change" next to a pair's label. A whole page that didn't
+ * change is normal; a close-up of the element a note is about that didn't is flagged.
+ */
+const noteFor = (d: VisualDiff | undefined, label: string) =>
+  d ? ` <em class="note ${d.verdict}${d.verdict === 'none' && !label.startsWith('Page ') ? ' warn' : ''}">${esc(diffNote(d))}</em>` : '';
+
+/** Styles for outlines and notes, shared by the compare and summary pages. */
+const HL_CSS = `.shot{position:relative;display:inline-block;max-width:100%;vertical-align:top;line-height:0}
+  .shot img{display:block;max-width:100%;height:auto}
+  .hl{position:absolute;box-sizing:border-box;border:2px solid var(--pg-highlight);border-radius:6px;background:color-mix(in srgb,var(--pg-highlight) 12%,transparent);box-shadow:0 0 0 1px var(--pg-surface);pointer-events:none}
+  .hl-before{border-style:dashed;border-color:var(--pg-muted);background:none}
+  .note{font-style:normal;font-weight:600;font-size:12px;color:var(--pg-muted);margin-left:8px;white-space:nowrap}
+  .note.warn{color:var(--pg-on-danger);background:var(--pg-danger);padding:1px 8px;border-radius:999px}`;
 
 /** Shared <head> bits: theme variables + the default webfonts (falls back to system fonts offline). */
 const themeHead = (theme: Theme) => `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="${DEFAULT_FONTS_URL}">
@@ -40,11 +64,15 @@ ${themeHead(theme)}
   .views button{font:inherit;font-size:12px;font-weight:600;border:1px solid var(--pg-line);background:var(--pg-surface);color:var(--pg-text);border-radius:999px;padding:4px 12px;cursor:pointer}
   .views button[aria-pressed=true]{background:var(--pg-heading);color:var(--pg-on-primary);border-color:var(--pg-heading)}
   .views button:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}
+  .views .hl-toggle{margin-right:6px}
   .side{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--pg-line)}
   .side figure{margin:0;background:var(--pg-surface);padding:14px}
   .side figcaption{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--pg-muted);margin-bottom:8px}
   .side figure:last-child figcaption{color:var(--pg-success)}
-  .side img{display:block;max-width:100%;height:auto;border:1px solid var(--pg-line);border-radius:8px}
+  .side .shot{border:1px solid var(--pg-line);border-radius:8px;overflow:hidden}
+  ${HL_CSS}
+  section.no-hl .hl{display:none}
+  .toggle .shot[data-showing=before] .hl-after,.toggle .shot[data-showing=after] .hl-before{display:none}
   .slider{position:relative;overflow:hidden;background:var(--pg-surface);padding:14px;display:none}
   .slider .stage{position:relative;display:inline-block;max-width:100%}
   .slider img{display:block;max-width:100%;height:auto}
@@ -53,14 +81,14 @@ ${themeHead(theme)}
   .slider input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
   .slider .bar{position:absolute;top:0;bottom:0;left:50%;width:3px;margin-left:-1px;background:var(--pg-accent);pointer-events:none}
   .toggle{display:none;padding:14px;background:var(--pg-surface)}
-  .toggle img{display:block;max-width:100%;height:auto;border:1px solid var(--pg-line);border-radius:8px}
+  .toggle .shot{border:1px solid var(--pg-line);border-radius:8px;overflow:hidden}
   .toggle .hint{font-size:12px;color:var(--pg-muted);margin-top:6px}
   section[data-view=slider] .side,section[data-view=toggle] .side{display:none}
   section[data-view=slider] .slider{display:block}
   section[data-view=toggle] .toggle{display:block}
   section.phone .side figure{display:flex;flex-direction:column;align-items:center}
   section.phone .side figcaption{align-self:stretch}
-  section.phone img{max-width:min(100%,390px)}
+  section.phone .shot,section.phone .slider .stage>img{max-width:min(100%,390px)}
   section.phone .slider .stage{max-width:min(100%,390px)}
   section.phone .slider .top img{max-width:none}
   footer{padding:16px 36px 32px;color:var(--pg-muted);font-size:12px}
@@ -76,26 +104,27 @@ ${themeHead(theme)}
 ${pairs
   .map(
     (p, i) => `<section data-view="side" id="pair-${i}"${p.phone ? ' class="phone"' : ''}>
-  <h2><span>${esc(p.label)}</span><span class="views"><button aria-pressed="true" data-v="side">Side by side</button><button data-v="slider">Slider</button><button data-v="toggle">Toggle</button></span></h2>
+  <h2><span>${esc(p.label)}${noteFor(p.diff, p.label)}</span><span class="views">${p.diff?.verdict === 'some' ? '<button class="hl-toggle" aria-pressed="true">Outline changes</button>' : ''}<button aria-pressed="true" data-v="side">Side by side</button><button data-v="slider">Slider</button><button data-v="toggle">Toggle</button></span></h2>
   <div class="side">
-    <figure><figcaption>Before</figcaption><img src="${esc(p.before)}" alt="Before: ${esc(p.label)}"></figure>
-    <figure><figcaption>After</figcaption><img src="${esc(p.after)}" alt="After: ${esc(p.label)}"></figure>
+    <figure><figcaption>Before</figcaption>${shot(p.before, `Before: ${p.label}`, p.diff?.before, 'before')}</figure>
+    <figure><figcaption>After</figcaption>${shot(p.after, `After: ${p.label}`, p.diff?.after, 'after')}</figure>
   </div>
-  <div class="slider"><div class="stage"><img src="${esc(p.after)}" alt=""><div class="top"><img src="${esc(p.before)}" alt=""></div><div class="bar"></div><input type="range" min="0" max="100" value="50" aria-label="Reveal"></div></div>
-  <div class="toggle"><img src="${esc(p.before)}" data-before="${esc(p.before)}" data-after="${esc(p.after)}" alt=""><div class="hint">Showing <b>before</b> — click image or press space to toggle</div></div>
+  <div class="slider"><div class="stage"><img src="${esc(p.after)}" alt=""><div class="top"><img src="${esc(p.before)}" alt=""></div>${marks(p.diff?.after, 'after')}<div class="bar"></div><input type="range" min="0" max="100" value="50" aria-label="Reveal"></div></div>
+  <div class="toggle"><span class="shot" data-showing="before"><img src="${esc(p.before)}" data-before="${esc(p.before)}" data-after="${esc(p.after)}" alt="">${marks(p.diff?.before, 'before')}${marks(p.diff?.after, 'after')}</span><div class="hint">Showing <b>before</b> — click image or press space to toggle</div></div>
 </section>`,
   )
   .join('\n')}
 </main>
-<footer>Generated by peanut-gallery. Reply on the issue with “after” or “before”, or react 👍 / 👎 on the comparison comment.</footer>
+<footer>${pairs.some((p) => p.diff?.verdict === 'some') ? 'Outlined: areas that look different between before and after (solid on after, dashed on before). ' : ''}Generated by peanut-gallery. Reply on the issue with “after” or “before”, or react 👍 / 👎 on the comparison comment.</footer>
 <script>
 document.querySelectorAll('section').forEach(s=>{
-  s.querySelectorAll('.views button').forEach(b=>b.onclick=()=>{s.dataset.view=b.dataset.v;s.querySelectorAll('.views button').forEach(x=>x.setAttribute('aria-pressed',x===b));});
+  s.querySelectorAll('.views button[data-v]').forEach(b=>b.onclick=()=>{s.dataset.view=b.dataset.v;s.querySelectorAll('.views button[data-v]').forEach(x=>x.setAttribute('aria-pressed',x===b));});
+  const hl=s.querySelector('.hl-toggle');if(hl)hl.onclick=()=>{const on=hl.getAttribute('aria-pressed')!=='true';hl.setAttribute('aria-pressed',on);s.classList.toggle('no-hl',!on);};
   const r=s.querySelector('.slider input'),top=s.querySelector('.slider .top'),bar=s.querySelector('.slider .bar'),stage=s.querySelector('.slider .stage');
   const sync=()=>{top.style.width=r.value+'%';bar.style.left=r.value+'%';top.querySelector('img').style.width=stage.clientWidth+'px';};
   r.oninput=sync;new ResizeObserver(sync).observe(stage);
   const t=s.querySelector('.toggle img'),h=s.querySelector('.toggle .hint');let after=false;
-  const flip=()=>{after=!after;t.src=after?t.dataset.after:t.dataset.before;h.innerHTML='Showing <b>'+(after?'after':'before')+'</b> — click image or press space to toggle';};
+  const flip=()=>{after=!after;t.src=after?t.dataset.after:t.dataset.before;t.parentElement.dataset.showing=after?'after':'before';h.innerHTML='Showing <b>'+(after?'after':'before')+'</b> — click image or press space to toggle';};
   t.onclick=flip;document.addEventListener('keydown',e=>{if(e.code==='Space'&&s.dataset.view==='toggle'){e.preventDefault();flip();}});
 });
 </script>
@@ -113,10 +142,11 @@ export function renderSummaryPage(proposal: Proposal, pairs: ComparePair[], them
   .cap{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--pg-muted);margin-bottom:8px}
   .pair>div:last-child .cap{color:var(--pg-success)}
   img{display:block;max-width:100%;height:auto;border-radius:6px}
+  ${HL_CSS}
   .label{font-size:13px;font-weight:700;margin:0 0 8px}
   .pair.phone{grid-template-columns:repeat(2,minmax(0,340px));justify-content:start}
   </style></head><body><div class="brand">🥜 Peanut Gallery</div><h1>${esc(proposal.title)}</h1>
-  ${pairs.map((p) => `<p class="label">${esc(p.label)}</p><div class="pair${p.phone ? ' phone' : ''}"><div><div class="cap">Before</div><img src="${esc(p.before)}"></div><div><div class="cap">After</div><img src="${esc(p.after)}"></div></div>`).join('')}
+  ${pairs.map((p) => `<p class="label">${esc(p.label)}${noteFor(p.diff, p.label)}</p><div class="pair${p.phone ? ' phone' : ''}"><div><div class="cap">Before</div>${shot(p.before, '', p.diff?.before, 'before')}</div><div><div class="cap">After</div>${shot(p.after, '', p.diff?.after, 'after')}</div></div>`).join('')}
   </body></html>`;
 }
 
