@@ -39,6 +39,14 @@ export const css = `
   box-shadow: 0 2px 8px rgba(21, 42, 74, .35); border: 2px solid var(--pg-surface);
 }
 .pg-pin.pg-low { background: var(--pg-pin-low); }
+/* Other reviewers' notes: same shape, chip colours, initials, a step behind yours. */
+.pg-pin.pg-other { background: var(--pg-chip); color: var(--pg-on-chip); font-size: 10px; letter-spacing: .02em; z-index: 2147482400; padding: 0; font-family: inherit; }
+.pg-commenting .pg-pin.pg-other { pointer-events: none; opacity: .4; }
+.pg-theirs .pg-text { white-space: pre-wrap; margin: 4px 0 2px; }
+.pg-others-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--pg-line); margin-top: 6px; padding-top: 10px; }
+.pg-others-head h4 { margin: 0; font-size: 13px; font-weight: 700; color: var(--pg-heading); }
+.pg-btn.pg-small { padding: 3px 9px; font-size: 11px; }
+.pg-item.pg-their .pg-meta a { font-family: inherit; }
 .pg-pin:hover { transform: scale(1.1); }
 
 .pg-composer, .pg-panel {

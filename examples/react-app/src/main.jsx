@@ -11,7 +11,8 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <App />
     </BrowserRouter>
-    {/* Shown only when the page is opened with ?peanut (then it stays on for the tab). */}
-    <PeanutGallery repo="PixelAtLarge/peanut-gallery-sandbox" activation="query" />
+    {/* Shown only when the page is opened with ?peanut (then it stays on for the tab).
+        With VITE_PEANUT_RELAY set, notes go through that relay, and reviewers see each other's. */}
+    <PeanutGallery repo="PixelAtLarge/peanut-gallery-sandbox" activation="query" relayUrl={import.meta.env.VITE_PEANUT_RELAY || undefined} />
   </StrictMode>,
 );

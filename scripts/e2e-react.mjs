@@ -104,7 +104,9 @@ writeFileSync('peanut-gallery.config.json', JSON.stringify(cfg, null, 2) + '\n')
 // ── 2. reviewer session in the running app: route changes, async data, a modal ─
 const { chromium } = await import(join(ROOT, 'node_modules/playwright/index.mjs'));
 const PORT = 4391;
-const vite = spawn(DEV.replace('{port}', PORT), { cwd: DIR, shell: true, stdio: 'ignore', detached: true });
+const RELAY_PORT = 4392;
+// The app sends notes through a local relay that shares them, so the second reviewer sees the first's.
+const vite = spawn(DEV.replace('{port}', PORT), { cwd: DIR, shell: true, stdio: 'ignore', detached: true, env: { ...process.env, VITE_PEANUT_RELAY: `http://127.0.0.1:${RELAY_PORT}/` } });
 const stopVite = () => { try { process.kill(-vite.pid, 'SIGTERM'); } catch { /* gone */ } };
 process.on('exit', stopVite); // also when a check fails and exits early
 let viteExit = null;
@@ -127,7 +129,7 @@ const addNote = async (target, text, kind) => {
   if (kind) await w('select').selectOption(kind);
   await w('.pg-composer .pg-primary').click();
 };
-const pins = () => page.evaluate(() => Array.from(document.querySelector('peanut-gallery').shadowRoot.querySelectorAll('.pg-pin')).map((p) => ({ title: p.title, x: parseFloat(p.style.left), y: parseFloat(p.style.top) })));
+const pins = () => page.evaluate(() => Array.from(document.querySelector('peanut-gallery').shadowRoot.querySelectorAll('.pg-pin:not(.pg-other)')).map((p) => ({ title: p.title, x: parseFloat(p.style.left), y: parseFloat(p.style.top) })));
 const settle = () => page.waitForTimeout(150);
 /** Poll until fn() is truthy (pins redraw on the next animation frame after a change). */
 const until = async (fn, ms = 3000) => {
@@ -188,27 +190,6 @@ check('browser Back (popstate) redraws the right pins', (await pins()).length ==
 
 const session = await page.evaluate((repo) => JSON.parse(localStorage.getItem(`peanut-gallery:${repo}`)), 'PixelAtLarge/peanut-gallery-sandbox');
 
-// A second reviewer, on a phone: taps to leave a note on the sticky checkout bar, which only exists at phone size.
-const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-const phonePage = await phoneCtx.newPage();
-phonePage.on('pageerror', (e) => errors.push(`phone: ${e.message}`));
-await phonePage.goto(`http://127.0.0.1:${PORT}/?peanut`);
-await phonePage.locator('[data-testid="mobile-bar"]').waitFor();
-const pw = (sel) => phonePage.locator('peanut-gallery').locator(sel);
-const toolbarBox = await pw('.pg-toolbar').boundingBox();
-check('on a phone, the widget toolbar fits on screen', toolbarBox && toolbarBox.x >= 0 && toolbarBox.x + toolbarBox.width <= 390, JSON.stringify(toolbarBox));
-await pw('[data-role=comment]').tap();
-await phonePage.locator('[data-testid="mobile-bar"] span').tap();
-await pw('textarea').fill('Say how many plants are in the cart, not just the total.');
-await pw('.pg-composer .pg-primary').tap();
-await phonePage.waitForTimeout(200);
-const phoneSession = await phonePage.evaluate((repo) => JSON.parse(localStorage.getItem(`peanut-gallery:${repo}`)), 'PixelAtLarge/peanut-gallery-sandbox');
-const phoneNote = phoneSession?.annotations?.[0];
-check('a reviewer on a phone can leave a note by tapping', phoneSession?.annotations?.length === 1 && phoneNote.viewport.width === 390 && phoneNote.anchor.selector.includes('mobile-bar'), JSON.stringify(phoneNote && { viewport: phoneNote.viewport, selector: phoneNote.anchor.selector }));
-await phoneCtx.close();
-await browser.close();
-stopVite();
-check('no errors in the app while reviewing', errors.length === 0, errors.join(' | '));
 const paths = session.annotations.map((a) => new URL(a.pageUrl).pathname);
 check('session has 4 notes with the right route on each', session.annotations.length === 4 && paths.join(',') === '/,/,/checkout,/checkout', paths.join(', '));
 const stepsOf = (s) => s.annotations.map((a) => (a.steps ?? []).map((st) => (st.action && st.action !== 'click' ? `${st.action}:${st.field}:${st.masked ? '•' : st.value ?? ''}` : st.textFingerprint)));
@@ -220,18 +201,67 @@ session.author = 'e2e-reviewer';
 // ── 3. relay → issue → pull ───────────────────────────────────────────────────
 const { createRelayHandler } = await import(join(ROOT, 'packages/relay/dist/index.js'));
 const relayToken = process.env.RELAY_VIA_GH ? 'via-gh' : gh('auth', 'token');
-const viaGh = async (url, init) => {
-  const path = new URL(url).pathname.replace(/^\//, '');
-  const r = spawnSync('gh', ['api', '-X', init.method, path, '--input', '-', '-i'], { input: init.body, encoding: 'utf8' });
+const viaGh = async (url, init = {}) => {
+  const u = new URL(url);
+  const path = (u.pathname + u.search).replace(/^\//, '');
+  const method = init.method ?? 'GET';
+  const r = spawnSync('gh', ['api', '-X', method, path, ...(init.body ? ['--input', '-'] : []), '-i'], { input: init.body, encoding: 'utf8' });
   const [head, ...rest] = r.stdout.split(/\r?\n\r?\n/);
   const status = Number(/HTTP\/[\d.]+ (\d+)/.exec(head)?.[1] ?? 500);
   return new Response(rest.join('\n\n'), { status, headers: { 'content-type': 'application/json' } });
 };
 const origin = `http://127.0.0.1:${PORT}`;
-const relay = createRelayHandler({ githubToken: relayToken, repo: SANDBOX, allowedOrigins: [origin], ...(process.env.RELAY_VIA_GH ? { fetch: viaGh } : {}) });
+const relay = createRelayHandler({ githubToken: relayToken, repo: SANDBOX, allowedOrigins: [origin], shareNotes: true, ...(process.env.RELAY_VIA_GH ? { fetch: viaGh } : {}) });
+// The same relay over HTTP, for the widget in the browser.
+const { createServer } = await import('node:http');
+const relayServer = createServer(async (req, resp) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const r = await relay(new Request(`http://127.0.0.1:${RELAY_PORT}${req.url}`, { method: req.method, headers: Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')), body: ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? undefined : Buffer.concat(chunks) }));
+  resp.writeHead(r.status, Object.fromEntries(r.headers));
+  resp.end(Buffer.from(await r.arrayBuffer()));
+}).listen(RELAY_PORT, '127.0.0.1');
 const res = await relay(new Request('https://relay.local/', { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ session }) }));
 const filed = await res.json();
 check('relay created a GitHub issue', res.status === 201 && filed.issueNumber, filed.issueUrl ?? JSON.stringify(filed));
+
+// A second reviewer, on a phone: taps to leave a note on the sticky checkout bar, which only exists at phone size.
+const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const phonePage = await phoneCtx.newPage();
+phonePage.on('pageerror', (e) => errors.push(`phone: ${e.message}`));
+await phonePage.goto(`http://127.0.0.1:${PORT}/?peanut`);
+await phonePage.locator('[data-testid="mobile-bar"]').waitFor();
+const pw = (sel) => phonePage.locator('peanut-gallery').locator(sel);
+// The first reviewer's notes, just filed, show up for this one (read through the relay).
+const others = pw('.pg-pin.pg-other');
+await others.first().waitFor({ timeout: 15000 }).catch(() => {});
+const otherTitles = await others.evaluateAll((ps) => ps.map((p) => p.title));
+check('a second reviewer sees other reviewers’ notes pinned on the page', otherTitles.length >= 1 && otherTitles.some((t) => t === 'e2e-reviewer: Show a small photo of each plant next to its name.'), `${otherTitles.length} pins`);
+await others.first().tap();
+const popover = await pw('.pg-theirs').textContent();
+const issueLink = await pw('.pg-theirs a').getAttribute('href');
+check('…tapping one opens it read-only, linked to its issue', / · #\d+/.test(popover) && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/.test(issueLink ?? '') && (await pw('.pg-theirs textarea').count()) === 0, `${popover.slice(0, 80)} → ${issueLink}`);
+await pw('.pg-theirs .pg-ghost').tap();
+await pw('[data-role=review]').tap();
+const fromThisRun = await pw('.pg-their .pg-meta').evaluateAll((ms, n) => ms.filter((m) => m.textContent.endsWith(`#${n}`)).length, filed.issueNumber);
+check('…and the panel lists all four notes just filed', fromThisRun === session.annotations.length, `${fromThisRun} from #${filed.issueNumber}; ${await pw('.pg-others-head h4').textContent()}`);
+await pw('[data-role=review]').tap();
+const toolbarBox = await pw('.pg-toolbar').boundingBox();
+check('on a phone, the widget toolbar fits on screen', toolbarBox && toolbarBox.x >= 0 && toolbarBox.x + toolbarBox.width <= 390, JSON.stringify(toolbarBox));
+await pw('[data-role=comment]').tap();
+// Their pins sit on top of the page; tap the bar's text, away from any pin.
+await phonePage.locator('[data-testid="mobile-bar"] span').tap();
+await pw('textarea').fill('Say how many plants are in the cart, not just the total.');
+await pw('.pg-composer .pg-primary').tap();
+await phonePage.waitForTimeout(200);
+const phoneSession = await phonePage.evaluate((repo) => JSON.parse(localStorage.getItem(`peanut-gallery:${repo}`)), 'PixelAtLarge/peanut-gallery-sandbox');
+const phoneNote = phoneSession?.annotations?.[0];
+check('a reviewer on a phone can leave a note by tapping', phoneSession?.annotations?.length === 1 && phoneNote.viewport.width === 390 && phoneNote.anchor.selector.includes('mobile-bar'), JSON.stringify(phoneNote && { viewport: phoneNote.viewport, selector: phoneNote.anchor.selector }));
+await phoneCtx.close();
+await browser.close();
+stopVite();
+relayServer.close();
+check('no errors in the app while reviewing', errors.length === 0, errors.join(' | '));
 phoneSession.author = 'e2e-phone-reviewer';
 const phoneRes = await relay(new Request('https://relay.local/', { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ session: phoneSession }) }));
 const phoneFiled = await phoneRes.json();

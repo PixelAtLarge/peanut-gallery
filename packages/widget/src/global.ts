@@ -9,6 +9,8 @@ if (script?.dataset.repo) {
   init({
     repo: script.dataset.repo,
     relayUrl: script.dataset.relayUrl,
+    relayKey: script.dataset.relayKey,
+    showOthers: script.dataset.showOthers !== 'false',
     mode: script.dataset.mode as 'issue-url' | 'relay' | 'auto' | undefined,
     activation: script.dataset.activation as 'always' | 'query' | undefined,
     loadFonts: script.dataset.loadFonts === 'true',

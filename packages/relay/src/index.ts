@@ -1,4 +1,4 @@
-import { sessionToIssue, LABELS, type ReviewSession } from '@pixelatlarge/peanut-gallery-core';
+import { issueToSession, sessionToIssue, LABELS, type ReviewSession, type SharedNote } from '@pixelatlarge/peanut-gallery-core';
 
 export interface RelayOptions {
   /** Fine-grained PAT or GitHub App installation token with Issues: write on the repo. */
@@ -19,6 +19,15 @@ export interface RelayOptions {
   allowedLabels?: string[];
   /** Max annotations accepted in one submission. */
   maxAnnotations?: number;
+  /**
+   * Let reviewers see each other's notes (default false). The widget asks the relay (GET) for the
+   * notes in open feedback issues for its site and pins them on the page, so reviewers see
+   * what's already been said. Anyone allowed to call the relay (allowedOrigins, and sharedKey if
+   * set) can read them, so only turn this on when that's everyone who should see the feedback.
+   */
+  shareNotes?: boolean;
+  /** How long shared notes are cached, in seconds (default 30), so a busy review doesn't hit GitHub's rate limits. */
+  notesCacheSeconds?: number;
   /** Override fetch (tests). */
   fetch?: typeof fetch;
   /** GitHub API base (GHES). */
@@ -49,7 +58,7 @@ export function createRelayHandler(opts: RelayOptions) {
       ok,
       headers: {
         'access-control-allow-origin': ok ? (allowed.includes('*') ? '*' : origin!) : 'null',
-        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
         'access-control-allow-headers': 'content-type, x-peanut-gallery-key',
         'access-control-max-age': '86400',
         vary: 'origin',
@@ -59,6 +68,75 @@ export function createRelayHandler(opts: RelayOptions) {
 
   const baseLabels = opts.labels ?? [LABELS.root, LABELS.feedback];
   const permitted = new Set([...baseLabels, ...(opts.allowedLabels ?? [])]);
+  const gh = {
+    authorization: `Bearer ${opts.githubToken}`,
+    accept: 'application/vnd.github+json',
+    'user-agent': 'peanut-gallery-relay',
+    'x-github-api-version': '2022-11-28',
+  };
+
+  // Shared notes, cached; one GitHub request at a time however many reviewers ask at once.
+  let cached: { at: number; notes: SharedNote[] } | null = null;
+  let loading: Promise<SharedNote[]> | null = null;
+  const ttl = (opts.notesCacheSeconds ?? 30) * 1000;
+  /**
+   * Notes this relay just filed. GitHub's issue list takes a few seconds to include a new issue,
+   * so they're added to what's shared until it does (or for 10 minutes).
+   */
+  let recent: { at: number; note: SharedNote }[] = [];
+  const withRecent = (notes: SharedNote[]) => {
+    const ids = new Set(notes.map((n) => n.id));
+    recent = recent.filter((r) => !ids.has(r.note.id) && Date.now() - r.at < 10 * 60_000);
+    return recent.length ? [...notes, ...recent.map((r) => r.note)] : notes;
+  };
+  const notesOf = (s: ReviewSession, issueNumber: number, issueUrl: string): SharedNote[] =>
+    (s.annotations ?? [])
+      .filter((a) => a?.anchor?.selector && typeof a.text === 'string' && typeof a.pageUrl === 'string')
+      .map((a) => ({
+        id: a.id,
+        text: a.text,
+        ...(a.kind ? { kind: a.kind } : {}),
+        ...((a.author ?? s.author) ? { author: a.author ?? s.author } : {}),
+        anchor: a.anchor,
+        pageUrl: a.pageUrl,
+        createdAt: a.createdAt,
+        issueNumber,
+        issueUrl,
+      }));
+  async function sharedNotes(): Promise<SharedNote[]> {
+    if (cached && Date.now() - cached.at < ttl) return withRecent(cached.notes);
+    loading ??= loadNotes()
+      .then((notes) => {
+        cached = { at: Date.now(), notes };
+        return notes;
+      })
+      .finally(() => {
+        loading = null;
+      });
+    return withRecent(await loading);
+  }
+  async function loadNotes(): Promise<SharedNote[]> {
+    const notes: SharedNote[] = [];
+    for (let page = 1; page <= 3; page++) {
+      const res = await f(`${apiBase}/repos/${opts.repo}/issues?state=open&labels=${encodeURIComponent(baseLabels.join(','))}&per_page=100&page=${page}`, { method: 'GET', headers: gh });
+      if (!res.ok) throw new Error(`github ${res.status}`);
+      const issues = (await res.json()) as { number: number; html_url: string; body?: string | null; pull_request?: unknown }[];
+      for (const issue of issues) {
+        if (issue.pull_request) continue;
+        const s = issueToSession(issue.body ?? '');
+        if (s) notes.push(...notesOf(s, issue.number, issue.html_url));
+      }
+      if (issues.length < 100) break;
+    }
+    return notes;
+  }
+  const originOf = (u: string | null | undefined) => {
+    try {
+      return u ? new URL(u).origin : null;
+    } catch {
+      return null;
+    }
+  };
 
   return async function handle(req: Request): Promise<Response> {
     try {
@@ -80,9 +158,23 @@ export function createRelayHandler(opts: RelayOptions) {
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...c.headers } });
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: c.headers });
-    if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
+    if (req.method !== 'POST' && req.method !== 'GET') return json(405, { error: 'method not allowed' });
     if (!c.ok) return json(403, { error: 'origin not allowed' });
     if (opts.sharedKey && req.headers.get('x-peanut-gallery-key') !== opts.sharedKey) return json(401, { error: 'bad key' });
+
+    if (req.method === 'GET') {
+      if (!opts.shareNotes) return json(404, { error: 'shared notes are off' });
+      // Notes for the site asking: its Origin, or ?origin= from a client that doesn't send one.
+      const site = originOf(origin) ?? originOf(new URL(req.url).searchParams.get('origin'));
+      let notes: SharedNote[];
+      try {
+        notes = await sharedNotes();
+      } catch (err) {
+        return json(502, { error: 'could not read notes from GitHub', detail: String((err as Error)?.message ?? err).slice(0, 200) });
+      }
+      const out = site ? notes.filter((n) => originOf(n.pageUrl) === site) : notes;
+      return new Response(JSON.stringify({ notes: out.slice(0, 500) }), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=15', ...c.headers } });
+    }
 
     let payload: { session?: ReviewSession; labels?: unknown };
     try {
@@ -102,15 +194,9 @@ export function createRelayHandler(opts: RelayOptions) {
     let res: Response;
     try {
       res = await f(`${apiBase}/repos/${opts.repo}/issues`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${opts.githubToken}`,
-        accept: 'application/vnd.github+json',
-        'content-type': 'application/json',
-        'user-agent': 'peanut-gallery-relay',
-        'x-github-api-version': '2022-11-28',
-      },
-      body: JSON.stringify({ title, body, labels }),
+        method: 'POST',
+        headers: { ...gh, 'content-type': 'application/json' },
+        body: JSON.stringify({ title, body, labels }),
       });
     } catch (err) {
       return json(502, { error: 'could not reach GitHub', detail: String((err as Error)?.message ?? err).slice(0, 200) });
@@ -120,6 +206,8 @@ export function createRelayHandler(opts: RelayOptions) {
       return json(502, { error: `github ${res.status}`, detail: text.slice(0, 500) });
     }
     const issue = (await res.json()) as { html_url: string; number: number };
+    // The next reviewer to ask should see these notes, even before GitHub's list includes them.
+    if (opts.shareNotes) recent.push(...notesOf(session!, issue.number, issue.html_url).map((note) => ({ at: Date.now(), note })));
     const result: RelayResult = { issueUrl: issue.html_url, issueNumber: issue.number };
     return json(201, result);
   }

@@ -80,6 +80,8 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 | `repo` | — | `owner/name` |
 | `mode` | `auto` | `issue-url` (zero infra, reviewer needs GitHub access) · `relay` · `auto` = relay if `relayUrl` set |
 | `relayUrl` | — | see §2 |
+| `relayKey` | — | sent as `x-peanut-gallery-key`, for a relay with `sharedKey` (`data-relay-key`) |
+| `showOthers` | `true` | show other reviewers' notes when the relay shares them (`data-show-others="false"` to hide) |
 | `activation` | `always` | `query` = only with `?peanut` (sticky per tab) |
 | `author` | asks once | reviewer name on the issue |
 | `labels` | `peanut-gallery, peanut-gallery:feedback` | |
@@ -125,11 +127,14 @@ export default createRelayHandler({
   githubToken: process.env.PEANUT_GALLERY_TOKEN!,        // fine-grained PAT, Issues: write on that one repo
   repo: process.env.PEANUT_GALLERY_REPO!,
   allowedOrigins: ['https://proto.example.com'],      // CORS
-  sharedKey: process.env.PEANUT_GALLERY_KEY,             // optional, widget sends x-peanut-gallery-key
+  sharedKey: process.env.PEANUT_GALLERY_KEY,             // optional; give the widget the same value as relayKey
+  shareNotes: true,                                      // optional: reviewers see each other's notes
 });
 ```
 
-Then `data-relay-url="https://…/api/peanut-gallery"` on the widget.
+Then `data-relay-url="https://…/api/peanut-gallery"` on the widget (and `data-relay-key` if you set `sharedKey`).
+
+**Reviewers see each other's notes** when the relay has `shareNotes: true`. The widget pins the notes from open feedback issues for that site next to the reviewer's own, with the other reviewer's initials. Tapping one opens it read-only, with a link to its issue, and the panel lists them, with a switch to hide their pins. Pins on the same element fan out so each can be opened, and they let clicks through while you pick an element to comment on. The relay caches what it reads from GitHub for 30 seconds (`notesCacheSeconds`) and shows a new submission straight away, before GitHub's issue list catches up. Anyone allowed to call the relay can read the notes, so leave it off when the prototype is public and the feedback shouldn't be. `showOthers: false` hides them in one widget.
 
 ## 3. Run the loop in your repo
 
