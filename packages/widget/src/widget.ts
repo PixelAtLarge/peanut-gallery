@@ -16,7 +16,7 @@ import {
   resolveTheme,
   themeToCssVars,
   DEFAULT_FONTS_URL,
-  type Theme,
+  type ThemeInput,
 } from '@pixelatlarge/peanut-gallery-core';
 import { css } from './styles.js';
 
@@ -92,8 +92,12 @@ export interface PeanutGalleryConfig {
   activation?: 'always' | 'query';
   /** Which annotation kinds to offer. */
   kinds?: AnnotationKind[];
-  /** Override any colour or font role. Defaults to the Conifer / Prep / Wasabi palette. */
-  theme?: Partial<Theme>;
+  /**
+   * Look of the widget: "cool" (default: Conifer / Prep / Wasabi on sea-glass and gull),
+   * "warm" (linen neutrals), or overrides of any colour or font role, optionally on a preset:
+   * `{ preset: "warm", primary: "#5b3df5" }`.
+   */
+  theme?: ThemeInput;
   /**
    * Load the default fonts (Manrope, Young Serif, JetBrains Mono) from Google Fonts into the page.
    * Off by default so the widget never adds third-party requests to a prototype unasked;

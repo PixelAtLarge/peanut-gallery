@@ -1,7 +1,7 @@
 import type { PreviewConfig } from './preview.js';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveTheme, type Theme } from '@pixelatlarge/peanut-gallery-core';
+import { resolveTheme, type Theme, type ThemeInput } from '@pixelatlarge/peanut-gallery-core';
 import type { AgentPolicy } from './policy.js';
 import type { DesignSystemConfig } from './design.js';
 import type { CheckConfig } from './checks.js';
@@ -69,8 +69,11 @@ export interface PeanutGalleryConfig {
    * e.g. { "allowCommands": ["npm run lint"], "allowDependencyChanges": false }
    */
   agent?: AgentPolicy;
-  /** Override colours/fonts of the generated comparison pages (defaults to the Conifer / Prep / Wasabi palette). */
-  theme?: Partial<Theme>;
+  /**
+   * Look of the generated comparison pages: "cool" (default), "warm", or overrides of any colour
+   * or font role, optionally on a preset (`{ "preset": "warm", "primary": "#5b3df5" }`).
+   */
+  theme?: ThemeInput;
   /** Default spend cap in USD per `apply`/`review`/`variants` invocation (CLI --budget overrides). */
   budget?: number;
   /**

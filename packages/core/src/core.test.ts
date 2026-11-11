@@ -183,3 +183,20 @@ describe('phone notes', () => {
     expect(sessionToIssue(mk(1280)).body).not.toContain('phone size');
   });
 });
+
+describe('themes', () => {
+  it('defaults to the cool look, with warm as a preset', async () => {
+    const { resolveTheme, COOL_THEME, WARM_THEME, DEFAULT_THEME } = await import('./index.js');
+    expect(DEFAULT_THEME).toBe(COOL_THEME);
+    expect(resolveTheme().bg).toBe('#E1EDF6');
+    expect(resolveTheme().line).toBe('#CFD9DF');
+    expect(resolveTheme('warm').bg).toBe('#F6F3E4');
+    expect(resolveTheme('cool')).toEqual(COOL_THEME);
+    // Overrides on the default, or on a preset.
+    expect(resolveTheme({ primary: '#5b3df5' })).toEqual({ ...COOL_THEME, primary: '#5b3df5' });
+    expect(resolveTheme({ preset: 'warm', primary: '#5b3df5' })).toEqual({ ...WARM_THEME, primary: '#5b3df5' });
+    expect('preset' in resolveTheme({ preset: 'warm' })).toBe(false);
+    // The brand stays the same in both: only the neutrals differ.
+    for (const k of ['primary', 'toolbar', 'accent', 'highlight', 'heading', 'fontBody'] as const) expect(WARM_THEME[k]).toBe(COOL_THEME[k]);
+  });
+});

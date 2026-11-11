@@ -84,7 +84,7 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 | `author` | asks once | reviewer name on the issue |
 | `labels` | `peanut-gallery, peanut-gallery:feedback` | |
 | `kinds` | all seven | which tags to offer |
-| `theme` | Conifer / Prep / Wasabi | override any colour or font role, e.g. `{ primary: '#5b3df5', fontBody: 'Inter, sans-serif' }` |
+| `theme` | `"cool"` | `"cool"` or `"warm"`, or override any colour or font role, e.g. `{ primary: '#5b3df5', fontBody: 'Inter, sans-serif' }`, optionally on a preset (`{ preset: 'warm', … }`). `data-theme="warm"` on the script tag |
 | `loadFonts` | `false` | load Manrope, Young Serif and JetBrains Mono from Google Fonts (`data-load-fonts="true"` on the script tag) |
 | `recordTyping` | `true` | keep what reviewers type and choose, so screenshots can replay it (private fields never are; see below). `data-record-typing="false"` on the script tag |
 | `onSubmit` | — | handle submission yourself (your backend, a demo); overrides `mode`. Resolve to clear the notes, return `{ keep: true }` to keep them, throw to show an error |
@@ -92,7 +92,7 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 
 ### Theming
 
-The widget and the generated comparison pages share one theme: a deep forest toolbar, emerald actions, sunny-yellow pins and outlines, carbon text on linen, with Young Serif headings and Manrope UI text. Every role (`primary`, `toolbar`, `accent`, `highlight`, `chip`, `bg`, `fontBody`, …, see `packages/core/src/theme.ts`) can be overridden — `theme` in `init()` for the widget, `theme` in `peanut-gallery.config.json` for the CLI's before/after and options pages:
+The widget and the generated comparison pages share one theme: a deep forest toolbar, emerald actions, sunny-yellow pins and outlines, carbon text on cool sea-glass and gull neutrals, with Young Serif headings and Manrope UI text. Prefer warm linen neutrals? `theme: "warm"`. Every role (`primary`, `toolbar`, `accent`, `highlight`, `chip`, `bg`, `fontBody`, …, see `packages/core/src/theme.ts`) can be overridden — `theme` in `init()` for the widget, `theme` in `peanut-gallery.config.json` for the CLI's before/after and options pages:
 
 ```jsonc
 { "theme": { "primary": "#5b3df5", "toolbar": "#1b1340", "accent": "#ffcc4d" } }
@@ -151,7 +151,7 @@ npx peanut-gallery review        # pull → interpret → confirm → apply
   "agentNotes": "Tailwind + shadcn. Use tokens from src/theme.ts.",
   "models": { "interpret": "claude-haiku-5-5", "apply": "claude-sonnet-5-5" },   // try claude-opus-5-5 for apply on big codebases
   "budget": 10,                                   // USD cap per apply/review/variants run; --budget overrides
-  "theme": {},                                    // optional colour/font overrides for comparison pages
+  "theme": "cool",                                // "cool" | "warm", or colour/font overrides for comparison pages
   "screenshot": { "width": 1280, "height": 800 }
 }
 ```
