@@ -71,7 +71,7 @@ export const css = `
 .pg-item { border-top: 1px solid var(--pg-line); padding: 8px 0; }
 .pg-item .pg-text { white-space: pre-wrap; }
 .pg-item .pg-meta { margin: 2px 0 0; }
-.pg-item .pg-kind { display: inline-block; background: var(--pg-chip); color: var(--pg-on-chip); border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+.pg-item .pg-kind, .pg-theirs .pg-kind { display: inline-block; background: var(--pg-chip); color: var(--pg-on-chip); border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 600; margin-right: 4px; }
 .pg-empty { color: var(--pg-muted); padding: 12px 0; }
 .pg-link { color: var(--pg-link); }
 .pg-toast { position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%); background: var(--pg-toast); color: var(--pg-on-toast); padding: 8px 14px; border-radius: 999px; z-index: 2147483200; font-weight: 500; }

@@ -178,6 +178,18 @@
   .slider .handle::after { content: "⇆"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--ink); display: grid; place-items: center; font-weight: 700; box-shadow: 0 4px 12px rgba(21, 42, 74, .3); }
   .slider .tagl, .slider .tagr { position: absolute; top: 10px; font: 700 11px/1 var(--mono); letter-spacing: .08em; padding: 6px 9px; border-radius: 7px; background: rgba(255, 255, 255, .94); }
   .slider .tagl { left: 10px; color: var(--muted); } .slider .tagr { right: 10px; color: var(--primary); }
+  .compare .tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hl-switch { font: 600 14px var(--body); border-radius: 999px; padding: 8px 14px 8px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  .hl-switch::before { content: ""; width: 14px; height: 10px; border: 2px solid currentColor; border-radius: 3px; }
+  .hl-switch[aria-pressed="true"] { color: var(--primary); border-color: var(--primary); background: var(--ok-bg); }
+  .hl-switch:hover { border-color: var(--forest); }
+  .slider .hls { position: absolute; inset: 0; pointer-events: none; }
+  .slider .hls i { position: absolute; box-sizing: border-box; border-radius: 6px; }
+  .slider .hls-after { clip-path: inset(0 0 0 var(--cut, 50%)); }
+  .slider .hls-after i { border: 2px solid var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); box-shadow: 0 0 0 1px #fff; }
+  .slider .hls-before { clip-path: inset(0 calc(100% - var(--cut, 50%)) 0 0); }
+  .slider .hls-before i { border: 2px dashed var(--muted); }
+  .slider[data-view="el"] .hls i[data-view="page"], .slider[data-view="page"] .hls i[data-view="el"], .slider.no-hl .hls { display: none; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .vote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .reply[hidden] { display: none; }
@@ -260,7 +272,7 @@
       <div class="content">
         <div class="card try">
           <div class="badges"><span class="badge warn">Try it</span></div>
-          <p style="color:var(--ink)">A reviewer already left two notes (the numbered pins). Add your own:</p>
+          <p style="color:var(--ink)">A reviewer already left two notes (the numbered pins), and a teammate's note shows with their initials. Add your own:</p>
           <ol>
             <li>Press <span class="key on">Comment</span> in the toolbar at the bottom right of the checkout.</li>
             <li>Click anything on the page and type a note.</li>
@@ -296,7 +308,7 @@
       <div class="cap">
         <div class="kicker"><span class="n">03</span>Interpret and build</div>
         <h2 id="h-build">Each change gets its own branch.</h2>
-        <p>Run <code>npx peanut-gallery review</code>. Claude groups the notes into proposals, then implements each one on its own branch, inside your design system, with a cost estimate up front and a budget cap you set.</p>
+        <p>Run <code>npx peanut-gallery review</code>, or let the GitHub Action run it when feedback comes in. Claude groups the notes into proposals, then implements each one on its own branch, inside your design system, with a cost estimate up front and a budget cap you set.</p>
       </div>
       <div class="content">
         <p class="notice" id="own-notes" hidden>Claude doesn't run live in this demo. In your repo it works from your reviewers' notes, using your own Claude login or API key. Below is a real run on the two example notes.</p>
@@ -341,17 +353,23 @@
       <div class="cap">
         <div class="kicker"><span class="n">04</span>Compare</div>
         <h2 id="h-compare">Before and after, side by side.</h2>
-        <p>Each PR carries screenshots of the elements your reviewers pointed at, and the full page. The comparison is posted back on the issue, and reviewers vote.</p>
+        <p>Each PR carries screenshots of the elements your reviewers pointed at, and the full page, with what changed outlined. The comparison is posted back on the issue, and reviewers vote.</p>
       </div>
       <div class="content">
         <div class="compare">
-          <div class="pills" role="group" aria-label="What to compare">
-            <button type="button" data-view="el" aria-pressed="true">The button</button>
-            <button type="button" data-view="page" aria-pressed="false">Whole page</button>
+          <div class="tools">
+            <div class="pills" role="group" aria-label="What to compare">
+              <button type="button" data-view="el" aria-pressed="true">The button</button>
+              <button type="button" data-view="page" aria-pressed="false">Whole page</button>
+            </div>
+            <button type="button" class="hl-switch" id="hl-switch" aria-pressed="true">Outline changes</button>
           </div>
-          <div class="slider" id="slider">
+          <div class="slider" id="slider" data-view="el">
             <img id="img-before" draggable="false" src="assets/pr35-before-el1.png" alt="Before: a plain outlined Pay now button next to Back" width="1120" height="480">
             <img id="img-after" class="after" draggable="false" src="assets/pr35-after-el1.png" alt="After: a filled blue button reading Pay $150.50" width="1120" height="480">
+            <!-- What changed, as peanut-gallery's visual diff found it in these screenshots: dashed on before, solid on after. -->
+            <span class="hls hls-before" aria-hidden="true"><i data-view="el" style="left:22.14%;top:36.67%;width:37.14%;height:26.67%"></i><i data-view="page" style="left:41.88%;top:79%;width:16.25%;height:8%"></i></span>
+            <span class="hls hls-after" aria-hidden="true"><i data-view="el" style="left:25.71%;top:36.67%;width:37.14%;height:26.67%"></i><i data-view="page" style="left:41.88%;top:79%;width:16.25%;height:8%"></i></span>
             <span class="handle" id="cut" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="Half before, half after"></span>
             <span class="tagl">BEFORE</span><span class="tagr">AFTER</span>
           </div>
@@ -419,6 +437,10 @@
         <div class="code">
           <div class="lab"><span>3 · When feedback comes in</span><button class="copy" type="button">Copy</button></div>
           <code>npx peanut-gallery review</code>
+        </div>
+        <div class="code">
+          <div class="lab"><span>Or let it run on its own (GitHub Action)</span><button class="copy" type="button">Copy</button></div>
+          <code>npx peanut-gallery init --action</code>
         </div>
       </div>
       <p class="foot">AI runs on your own Claude login or API key, with a budget you set · <a href="https://github.com/PixelAtLarge/peanut-gallery">github.com/PixelAtLarge/peanut-gallery</a></p>

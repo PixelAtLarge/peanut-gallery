@@ -427,6 +427,16 @@ describe('other reviewers’ notes (relay shareNotes)', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reads shared notes from a relay even when submitting through onSubmit', async () => {
+    const calls = relayWith([theirs()]);
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', onSubmit: () => ({}) }).mount();
+    await frame();
+    expect(calls).toHaveLength(1);
+    expect(shadow(w).querySelectorAll('.pg-pin.pg-other')).toHaveLength(1);
+    w.destroy();
+    vi.unstubAllGlobals();
+  });
+
   it('sends the relay key with a submission, then shows what was sent as shared', async () => {
     const calls = relayWith([]);
     const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', relayUrl: 'https://relay.test/', relayKey: 'k', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_x' }) as never), viewport: { width: 1, height: 1 } }] } }).mount();
@@ -447,6 +457,7 @@ describe('other reviewers’ notes (relay shareNotes)', () => {
     let calls = relayWith([]);
     new PeanutGalleryWidget({ repo: 'owner/repo' }).mount().destroy();
     new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', showOthers: false }).mount().destroy();
+    new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', mode: 'issue-url' }).mount().destroy();
     await frame();
     expect(calls).toHaveLength(0);
     calls = relayWith([theirs({ issueUrl: 'javascript:alert(1)' })]);
