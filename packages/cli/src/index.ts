@@ -8,6 +8,7 @@ export { readReplies, placeReply, type Reading, type VotePost } from './vote-rea
 export { interpret, flatten, type FlatAnnotation, type InterpretResult } from './interpret.js';
 export { implementProposal } from './agent.js';
 export { renderComparePage, renderSummaryPage } from './compare.js';
+export { visualDiff, diffNote, type VisualDiff, type Box } from './visual-diff.js';
 export { captureShots, renderHtmlToPng } from './screenshots.js';
 export { loadConfig, withDefaults, type PeanutGalleryConfig, type ResolvedConfig } from './config.js';
 export { completeText, completeJson, extractJson, hasCredentials, authHint } from './llm.js';

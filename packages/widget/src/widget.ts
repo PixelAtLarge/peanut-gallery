@@ -82,8 +82,8 @@ export interface PeanutGalleryConfig {
   /** Sent as `x-peanut-gallery-key`, for a relay set up with `sharedKey`. */
   relayKey?: string;
   /**
-   * In relay mode, show other reviewers' notes on the page (default true), if the relay shares
-   * them (`shareNotes`). Their pins are read-only and link to their issues.
+   * With a relay URL, show other reviewers' notes on the page (default true), if the relay
+   * shares them (`shareNotes`). Their pins are read-only and link to their issues.
    */
   showOthers?: boolean;
   /** Labels to apply. Defaults to ["peanut-gallery", "peanut-gallery:feedback"]. */
@@ -260,7 +260,8 @@ export class PeanutGalleryWidget {
 
   /** Fetch other reviewers' notes from the relay. Quietly does nothing if it doesn't share them. */
   private async loadOthers() {
-    if (this.effectiveMode() !== 'relay' || this.cfg.showOthers === false || !this.cfg.relayUrl || this.destroyed) return;
+    // A relay URL is enough, even when notes are submitted some other way (onSubmit).
+    if (this.cfg.mode === 'issue-url' || this.cfg.showOthers === false || !this.cfg.relayUrl || this.destroyed) return;
     try {
       const u = new URL(this.cfg.relayUrl, location.href);
       u.searchParams.set('origin', location.origin);

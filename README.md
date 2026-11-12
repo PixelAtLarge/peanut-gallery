@@ -8,6 +8,15 @@ https://github.com/user-attachments/assets/6f9dd8ca-1b8b-4670-8693-3aa33aff28fa
 
 Annotate your prototype or web app → feedback lands in GitHub Issues → Claude turns it into concrete proposals, implements each on a branch, captures **before / after**, asks reviewers which they prefer, and opens a PR per change.
 
+**Built for real projects:**
+
+- **Works on real apps**, not just static prototypes: single-page apps, notes inside modals, search results and filled-in forms (it replays what the reviewer clicked and typed, never passwords or card details), and phone-size screens.
+- **Runs on its own.** `npx peanut-gallery init --action` sets up a GitHub Action, so new feedback turns into proposed changes, and replies into verdicts, without anyone running a command.
+- **Screenshots your preview deploys** (Vercel, Netlify, Cloudflare Pages, Render…), with **what changed outlined**, and a warning when a change made no visible difference.
+- **Reads replies like a person.** "After, but keep the old green" counts as a vote for after, and the request is kept.
+- **Checks itself.** Each PR's description is compared with its diff, and anything that doesn't match is flagged.
+- **Reviewers see each other's notes** when they submit through the relay.
+
 ```
 reviewer (browser)            your repo (CLI)                       GitHub
 ──────────────────            ───────────────                       ──────
@@ -20,9 +29,11 @@ click element, write note ─▶  issue w/ selector+text+page   ◀──── 
                                           ─ push, open PR  ───────────▶ PR + comparison
                                           ─ comment on issue ─────────▶ "👍 after / 👎 before?"
                                 votes     ─ tally reactions/replies → label accepted/rejected
+
+        run it yourself, or let the GitHub Action run it when feedback arrives (init --action)
 ```
 
-| Reviewers annotate the live page | Each change ships with a before / after | Not sold? Generate options |
+| Reviewers annotate the live page | Each change ships with a before / after, changes outlined | Not sold? Generate options |
 | --- | --- | --- |
 | ![Widget](docs/images/widget.png) | ![Before and after](docs/images/before-after.png) | ![Options](docs/images/options.png) |
 

@@ -11,10 +11,34 @@ for (const a of session.annotations) a.pageUrl = here;
 
 const post = (msg: unknown) => parent.postMessage(msg, '*');
 
+// A teammate's note, as a relay with shareNotes would hand it over. Nothing is fetched: the demo
+// answers the widget's request itself.
+const RELAY = 'https://relay.demo.invalid/';
+const teammate = [
+  {
+    id: 'an_teammate',
+    text: 'Hide this until someone has a code. It pulls people away from paying.',
+    kind: 'copy',
+    author: 'Sam Rivera',
+    anchor: { selector: 'p.promo > a', tag: 'a', textFingerprint: 'Have a promo code?', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 1.12, y: 0.5 } },
+    pageUrl: here,
+    createdAt: '2026-11-04T15:12:00.000Z',
+    issueNumber: 33,
+    // The demo's own issue preview stands in for the GitHub issue.
+    issueUrl: 'https://pixelatlarge.github.io/peanut-gallery/#issue',
+  },
+];
+const realFetch = window.fetch.bind(window);
+window.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
+  String(input instanceof Request ? input.url : input).startsWith(RELAY)
+    ? Promise.resolve(new Response(JSON.stringify({ notes: teammate }), { headers: { 'content-type': 'application/json' } }))
+    : realFetch(input, init);
+
 const widget = init({
   repo: 'acme/checkout-prototype',
   author: 'You',
   loadFonts: true,
+  relayUrl: RELAY,
   session,
   onSubmit: (s) => {
     post({ type: 'peanut-demo:submit', session: s });

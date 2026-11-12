@@ -147,9 +147,18 @@ document.querySelectorAll<HTMLButtonElement>('.pills button').forEach((b) =>
     }
     before.alt = v.alt[0];
     after.alt = v.alt[1];
+    $<HTMLElement>('#slider').dataset.view = b.dataset.view;
     document.querySelectorAll('.pills button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }),
 );
+
+// Outlines of what changed, on or off.
+const hlSwitch = $<HTMLButtonElement>('#hl-switch');
+hlSwitch.addEventListener('click', () => {
+  const on = hlSwitch.getAttribute('aria-pressed') !== 'true';
+  hlSwitch.setAttribute('aria-pressed', String(on));
+  $<HTMLElement>('#slider').classList.toggle('no-hl', !on);
+});
 
 // ── votes ───────────────────────────────────────────────────────────────────
 

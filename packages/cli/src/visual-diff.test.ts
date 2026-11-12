@@ -80,6 +80,16 @@ describe('visual diff', () => {
     expect(d.before).toHaveLength(0);
   });
 
+  it('a same-size crop that moved (button grew, crop re-centred) outlines only what changed', () => {
+    // Everything shifts 24px right except the button, which grows leftwards in place.
+    const before = shot(560, 240, [...layout(0).map((r) => ({ ...r, x: r.x - 24 })), { x: 380, y: 160, w: 90, h: 36, c: line }]);
+    const after = shot(560, 240, [...layout(0), { x: 340, y: 160, w: 130, h: 36, c: [65, 95, 215] }]);
+    const d = visualDiff(before, after);
+    expect(d.verdict).toBe('some');
+    // Not the strip the moved crop revealed at the left edge, and not full height.
+    expect(d.after.every((b) => b.x > 0.3 && b.h < 0.5)).toBe(true);
+  });
+
   it('outlines separate changes separately', () => {
     const before = shot(640, 400, layout());
     const after = shot(640, 400, [...layout(), { x: 40, y: 360, w: 60, h: 20, c: [200, 40, 40] }, { x: 560, y: 60, w: 50, h: 12, c: [200, 40, 40] }]);
@@ -89,7 +99,7 @@ describe('visual diff', () => {
   });
 
   it('says "most of the view changed" instead of outlining everything', () => {
-    const d = visualDiff(shot(320, 200, layout()), shot(320, 200, [{ x: 0, y: 0, w: 320, h: 200, c: [21, 42, 74] }]));
+    const d = visualDiff(shot(320, 200, layout()), shot(320, 200, [{ x: 0, y: 0, w: 320, h: 200, c: [200, 40, 40] }]));
     expect(d.verdict).toBe('most');
     expect(d.after).toEqual([]);
     expect(diffNote(d)).toBe('Most of the view changed');

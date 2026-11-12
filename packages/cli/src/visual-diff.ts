@@ -30,6 +30,8 @@ const NOISE = 40;
 /** More than this share changed → "most of the view changed". */
 const MOST = 0.55;
 const MAX_BOXES = 8;
+/** Fewer changed CSS pixels than this in an area: noise, not a change. */
+const MIN_PIXELS = 20;
 
 interface Img {
   w: number;
@@ -73,26 +75,13 @@ function load(file: string): Img {
   return { w, h, rgb, gray };
 }
 
-/** Shrink a grayscale image by `f` (box average), for a fast first pass at alignment. */
-function shrink(img: Img, f: number): { w: number; h: number; gray: Float32Array } {
-  const w = Math.max(1, Math.floor(img.w / f));
-  const h = Math.max(1, Math.floor(img.h / f));
-  const gray = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let s = 0;
-      for (let dy = 0; dy < f; dy++) for (let dx = 0; dx < f; dx++) s += img.gray[(y * f + dy) * img.w + x * f + dx];
-      gray[y * w + x] = s / (f * f);
-    }
-  }
-  return { w, h, gray };
-}
-
 /**
- * How different two images look when `after` is shifted by (ox, oy) onto `before`: mean gray
- * difference over the overlap, plus a small cost for shifting so "no shift" wins ties.
+ * How badly two images disagree when `after` is shifted by (ox, oy) onto `before`: the share of
+ * sampled pixels that differ, over the overlap. Counting mismatches (rather than averaging
+ * brightness) keeps the right shift standing out on mostly blank screenshots. A tiny cost per
+ * pixel of shift makes "no shift" win ties.
  */
-function score(b: { w: number; h: number; gray: Float32Array }, a: { w: number; h: number; gray: Float32Array }, ox: number, oy: number): number {
+function mismatch(b: Img, a: Img, ox: number, oy: number, step: number): number {
   const x0 = Math.max(0, -ox);
   const y0 = Math.max(0, -oy);
   const x1 = Math.min(a.w, b.w - ox);
@@ -100,45 +89,42 @@ function score(b: { w: number; h: number; gray: Float32Array }, a: { w: number; 
   const area = (x1 - x0) * (y1 - y0);
   // Too little overlap to say anything.
   if (x1 <= x0 || y1 <= y0 || area < 0.5 * Math.min(a.w * a.h, b.w * b.h)) return Infinity;
-  let s = 0;
-  for (let y = y0; y < y1; y++) {
+  let bad = 0;
+  let n = 0;
+  for (let y = y0; y < y1; y += step) {
     const ra = y * a.w;
     const rb = (y + oy) * b.w + ox;
-    for (let x = x0; x < x1; x++) s += Math.abs(a.gray[ra + x] - b.gray[rb + x]);
+    for (let x = x0; x < x1; x += step) {
+      if (Math.abs(a.gray[ra + x] - b.gray[rb + x]) > 24) bad++;
+      n++;
+    }
   }
-  return s / area + 0.05 * (Math.abs(ox) + Math.abs(oy));
+  return bad / n + 0.00005 * (Math.abs(ox) + Math.abs(oy));
 }
 
 /**
  * The shift that lines `after` up with `before`. A close-up is cropped around the element, so
  * when the element grows or shrinks, everything around it moves; without this, all of it would
- * look changed.
+ * look changed. Sweeps each axis pixel by pixel (twice, so a shift in both is found), then
+ * settles the neighbourhood.
  */
 function align(before: Img, after: Img): { x: number; y: number } {
-  const F = 4;
-  const b = shrink(before, F);
-  const a = shrink(after, F);
-  const R = 24; // up to ~100 CSS px each way
-  let best = { x: 0, y: 0, s: score(b, a, 0, 0) };
+  const R = 120; // CSS px each way
+  const step = after.w * after.h > 300_000 ? 4 : 2;
+  let best = { x: 0, y: 0, s: mismatch(before, after, 0, 0, step) };
   const tryAt = (x: number, y: number) => {
-    const s = score(b, a, x, y);
+    const s = mismatch(before, after, x, y, step);
     if (s < best.s) best = { x, y, s };
   };
-  for (let y = -R; y <= R; y++) tryAt(0, y);
-  const by = best.y;
-  for (let x = -R; x <= R; x++) tryAt(x, by);
-  const c = { x: best.x, y: best.y };
-  for (let y = c.y - 1; y <= c.y + 1; y++) for (let x = c.x - 1; x <= c.x + 1; x++) tryAt(x, y);
-  // Refine at full (CSS px) resolution.
-  const fine = { x: best.x * F, y: best.y * F };
-  let top = { x: fine.x, y: fine.y, s: score(before, after, fine.x, fine.y) };
-  for (let y = fine.y - F; y <= fine.y + F; y++) {
-    for (let x = fine.x - F; x <= fine.x + F; x++) {
-      const s = score(before, after, x, y);
-      if (s < top.s) top = { x, y, s };
-    }
+  for (let pass = 0; pass < 2; pass++) {
+    const bx = best.x;
+    for (let y = -R; y <= R; y++) tryAt(bx, y);
+    const by = best.y;
+    for (let x = -R; x <= R; x++) tryAt(x, by);
   }
-  return { x: top.x, y: top.y };
+  const c = { x: best.x, y: best.y };
+  for (let y = c.y - 2; y <= c.y + 2; y++) for (let x = c.x - 2; x <= c.x + 2; x++) tryAt(x, y);
+  return { x: best.x, y: best.y };
 }
 
 interface CellBox {
@@ -208,16 +194,36 @@ export function visualDiff(beforeFile: string, afterFile: string): VisualDiff {
   const cw = Math.ceil(after.w / CELL);
   const ch = Math.ceil(after.h / CELL);
   const count = new Uint16Array(cw * ch);
+  // Past the edge of the before image: new content if the shot got bigger that way (the element
+  // grew), but only a moved crop if it's the same size, which isn't a change.
+  const grewX = after.w > before.w;
+  const grewY = after.h > before.h;
   for (let y = 0; y < after.h; y++) {
     for (let x = 0; x < after.w; x++) {
       const bx = x + off.x;
       const by = y + off.y;
       let changed: boolean;
-      if (bx < 0 || by < 0 || bx >= before.w || by >= before.h) changed = true; // new area
+      const outX = bx < 0 || bx >= before.w;
+      const outY = by < 0 || by >= before.h;
+      if (outX || outY) changed = (outX && grewX) || (outY && grewY);
       else {
+        // Changed only if nothing within a pixel matches: text that moved by a fraction of a
+        // pixel is smoothed differently, which isn't a change.
         const a = (y * after.w + x) * 3;
-        const b = (by * before.w + bx) * 3;
-        changed = Math.max(Math.abs(after.rgb[a] - before.rgb[b]), Math.abs(after.rgb[a + 1] - before.rgb[b + 1]), Math.abs(after.rgb[a + 2] - before.rgb[b + 2])) > NOISE;
+        changed = true;
+        for (let dy = -1; dy <= 1 && changed; dy++) {
+          const yy = by + dy;
+          if (yy < 0 || yy >= before.h) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = bx + dx;
+            if (xx < 0 || xx >= before.w) continue;
+            const b = (yy * before.w + xx) * 3;
+            if (Math.max(Math.abs(after.rgb[a] - before.rgb[b]), Math.abs(after.rgb[a + 1] - before.rgb[b + 1]), Math.abs(after.rgb[a + 2] - before.rgb[b + 2])) <= NOISE) {
+              changed = false;
+              break;
+            }
+          }
+        }
       }
       if (changed) count[Math.floor(y / CELL) * cw + Math.floor(x / CELL)]++;
     }
@@ -229,7 +235,16 @@ export function visualDiff(beforeFile: string, afterFile: string): VisualDiff {
   if (!n) return { verdict: 'none', after: [], before: [], changed: 0 };
   if (changed > MOST) return { verdict: 'most', after: [], before: [], changed };
 
-  const boxes = boxesFrom(cells, cw, ch, 2)
+  // A speck of a few pixels is rendering noise (text nudged by a pixel and a half); real changes
+  // are bigger than that, even a recoloured icon.
+  const pixelsIn = (b: CellBox) => {
+    let n = 0;
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (cells[y * cw + x]) n += count[y * cw + x];
+    return n;
+  };
+  const kept = boxesFrom(cells, cw, ch, 2).filter((b) => pixelsIn(b) >= MIN_PIXELS);
+  if (!kept.length) return { verdict: 'none', after: [], before: [], changed: 0 };
+  const boxes = kept
     .map((b) => ({ x0: Math.max(0, b.x0 - 1), y0: Math.max(0, b.y0 - 1), x1: Math.min(cw - 1, b.x1 + 1), y1: Math.min(ch - 1, b.y1 + 1) }))
     .sort((p, q) => (q.x1 - q.x0 + 1) * (q.y1 - q.y0 + 1) - (p.x1 - p.x0 + 1) * (p.y1 - p.y0 + 1))
     .slice(0, MAX_BOXES);
