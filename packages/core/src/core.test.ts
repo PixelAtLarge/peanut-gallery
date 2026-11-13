@@ -200,3 +200,56 @@ describe('themes', () => {
     for (const k of ['primary', 'toolbar', 'accent', 'highlight', 'heading', 'fontBody'] as const) expect(WARM_THEME[k]).toBe(COOL_THEME[k]);
   });
 });
+
+describe('source hints', () => {
+  it('cleans paths down to the project', async () => {
+    const { toProjectPath } = await import('./index.js');
+    expect(toProjectPath('http://localhost:5173/src/pages/Cart.jsx?t=1712:27:9')).toBe('src/pages/Cart.jsx');
+    expect(toProjectPath('/Users/anna/code/shop/src/components/Row.tsx')).toBe('src/components/Row.tsx');
+    expect(toProjectPath('C:\\Users\\anna\\shop\\src\\App.vue')).toBe('src/App.vue');
+    expect(toProjectPath('http://localhost:5173/@fs/Users/anna/shop/app/page.tsx')).toBe('app/page.tsx');
+    expect(toProjectPath('webpack://_N_E/./src/app/page.tsx')).toBe('src/app/page.tsx');
+    expect(toProjectPath('http://localhost:5173/node_modules/.vite/deps/react.js')).toBeNull();
+    expect(toProjectPath('/Users/anna/secret.txt')).toBe('secret.txt');
+  });
+
+  it('reads React 19 (where the JSX was written) and React 18 (_debugSource), skipping wrappers', async () => {
+    const { sourceHint } = await import('./index.js');
+    page('<ul><li><button id="b">Remove</button></li></ul><p id="p">Total</p>');
+    const fn = (name: string) => Object.assign(function () {}, { displayName: name });
+    const app = { type: fn('App'), return: null };
+    const cart = { type: fn('Cart'), return: { type: fn('Routes'), return: app } };
+    const row = { type: fn('CartRow'), return: cart };
+    const stack = 'Error: react-stack-top-frame\n    at jsxDEV (http://localhost:4391/node_modules/.vite/deps/react_jsx-dev-runtime.js:250:30)\n    at CartRow (http://localhost:4391/src/pages/Cart.jsx?t=17:27:9)';
+    Object.assign(document.getElementById('b')!, { __reactFiber$abc: { type: 'button', _debugStack: { stack }, return: { type: 'li', return: row } } });
+    expect(sourceHint(document.getElementById('b')!)).toEqual({ framework: 'react', components: ['CartRow', 'Cart'], file: 'src/pages/Cart.jsx' });
+    Object.assign(document.getElementById('p')!, { __reactFiber$abc: { type: 'p', _debugSource: { fileName: '/home/me/shop/src/Summary.jsx', lineNumber: 12 }, return: { type: fn('Summary'), return: app } } });
+    expect(sourceHint(document.getElementById('p')!)).toEqual({ framework: 'react', components: ['Summary'], file: 'src/Summary.jsx', line: 12 });
+  });
+
+  it('reads Vue 3, Vue 2, Svelte and data-source attributes', async () => {
+    const { sourceHint } = await import('./index.js');
+    page('<div id="v3"><span id="in3">x</span></div><div id="v2">y</div><div id="sv"><b id="inSv">z</b></div><section data-inspector-relative-path="src/Hero.tsx" data-inspector-line="8"><h1 id="at">Hi</h1></section>');
+    Object.assign(document.getElementById('v3')!, { __vueParentComponent: { type: { __file: '/Users/anna/shop/src/components/PriceRow.vue' }, parent: { type: { name: 'CheckoutPage' }, parent: { type: { name: 'App' } } } } });
+    expect(sourceHint(document.getElementById('in3')!)).toEqual({ framework: 'vue', components: ['PriceRow', 'CheckoutPage'], file: 'src/components/PriceRow.vue' });
+    Object.assign(document.getElementById('v2')!, { __vue__: { $options: { name: 'OldCard', __file: 'src/OldCard.vue' } } });
+    expect(sourceHint(document.getElementById('v2')!)).toMatchObject({ framework: 'vue', components: ['OldCard'], file: 'src/OldCard.vue' });
+    Object.assign(document.getElementById('sv')!, { __svelte_meta: { loc: { file: 'src/routes/+page.svelte', line: 41, column: 2 } } });
+    expect(sourceHint(document.getElementById('inSv')!)).toEqual({ framework: 'svelte', components: [], file: 'src/routes/+page.svelte', line: 42 });
+    expect(sourceHint(document.getElementById('at')!)).toEqual({ framework: 'attribute', components: [], file: 'src/Hero.tsx', line: 8 });
+  });
+
+  it('finds nothing in a plain page, never throws, and shows in the issue', async () => {
+    const { sourceHint, sourceLabel } = await import('./index.js');
+    page('<button id="x">Go</button>');
+    expect(sourceHint(document.getElementById('x')!)).toBeNull();
+    Object.defineProperty(document.getElementById('x')!, '__reactFiber$z', { get: () => { throw new Error('boom'); }, enumerable: true });
+    expect(sourceHint(document.getElementById('x')!)).toBeNull();
+    const hint = { framework: 'react' as const, components: ['CartRow', 'Cart'], file: 'src/pages/Cart.jsx', line: 27 };
+    expect(sourceLabel(hint)).toBe('`CartRow` › `Cart` in `src/pages/Cart.jsx:27`');
+    const base = { selector: 'button', tag: 'button', textFingerprint: 'Go', rect: { x: 0, y: 0, width: 1, height: 1 }, offset: { x: 0.5, y: 0.5 } };
+    const s: ReviewSession = { id: 's', prototypeUrl: 'https://p.test', createdAt: 'now', annotations: [{ id: 'a', text: 'x', anchor: base, pageUrl: 'https://p.test/', viewport: { width: 1, height: 1 }, createdAt: 'now', source: hint }] };
+    expect(sessionToIssue(s).body).toContain('- **Source:** `CartRow` › `Cart` in `src/pages/Cart.jsx:27`');
+    expect(issueToSession(sessionToIssue(s).body)?.annotations[0].source).toEqual(hint);
+  });
+});

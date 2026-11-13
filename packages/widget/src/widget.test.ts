@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PeanutGalleryWidget, normalizePageUrl } from './widget.js';
-import { MAX_STEPS } from '@pixelatlarge/peanut-gallery-core';
+import { MAX_STEPS, type Annotation } from '@pixelatlarge/peanut-gallery-core';
 
 // Node 25+ ships its own Web Storage `localStorage` global, which hides jsdom's in this
 // environment (and has no methods unless Node is given --localstorage-file). Use jsdom's.
@@ -377,7 +377,7 @@ describe('other reviewers’ notes (relay shareNotes)', () => {
       author: 'anna',
       relayUrl: 'https://relay.test/notes',
       relayKey: 'k',
-      session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_mine' }) as never), viewport: { width: 1, height: 1 } }] },
+      session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_mine' }) as unknown as Annotation), viewport: { width: 1, height: 1 } }] },
     }).mount();
     await frame();
     const sr = shadow(w);
@@ -416,7 +416,7 @@ describe('other reviewers’ notes (relay shareNotes)', () => {
 
   it('fans out pins on the same element so each can be opened; yours stay put', async () => {
     relayWith([theirs(), theirs({ id: 'b' }), theirs({ id: 'c' })]);
-    const w = new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'mine' }) as never), viewport: { width: 1, height: 1 } }] } }).mount();
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', relayUrl: 'https://relay.test/', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'mine' }) as unknown as Annotation), viewport: { width: 1, height: 1 } }] } }).mount();
     await frame();
     const sr = shadow(w);
     const mine = sr.querySelector('.pg-pin:not(.pg-other)') as HTMLElement;
@@ -439,7 +439,7 @@ describe('other reviewers’ notes (relay shareNotes)', () => {
 
   it('sends the relay key with a submission, then shows what was sent as shared', async () => {
     const calls = relayWith([]);
-    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', relayUrl: 'https://relay.test/', relayKey: 'k', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_x' }) as never), viewport: { width: 1, height: 1 } }] } }).mount();
+    const w = new PeanutGalleryWidget({ repo: 'owner/repo', author: 'anna', relayUrl: 'https://relay.test/', relayKey: 'k', session: { id: 's', prototypeUrl: location.href, createdAt: 'now', annotations: [{ ...(theirs({ id: 'an_x' }) as unknown as Annotation), viewport: { width: 1, height: 1 } }] } }).mount();
     vi.spyOn(window, 'open').mockReturnValue(null);
     const sr = shadow(w);
     (sr.querySelector('[data-role=review]') as HTMLButtonElement).click();

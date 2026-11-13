@@ -9,6 +9,7 @@ import {
   fieldName,
   isPrivateField,
   isTypingField,
+  sourceHint,
   type Step,
   type Annotation,
   type AnnotationKind,
@@ -128,6 +129,12 @@ export interface PeanutGalleryConfig {
    * `data-hj-suppress`, `.sentry-mask`). Set false to keep clicks only.
    */
   recordTyping?: boolean;
+  /**
+   * Note which component and file render the element (default true), read from the framework
+   * in dev builds of React, Vue and Svelte, or from data-source style attributes, so Claude goes
+   * straight to the right file. Production builds don't carry this; then the CLI searches.
+   */
+  sourceHints?: boolean;
 }
 
 /** localStorage that never throws: sandboxed frames and strict privacy modes can block it. */
@@ -526,6 +533,7 @@ export class PeanutGalleryWidget {
   private openComposer(target: Element, clientX: number, clientY: number, existing?: Annotation) {
     this.closeComposer();
     const anchor = existing?.anchor ?? createAnchor(target, clientX, clientY);
+    const source = existing ? existing.source : this.cfg.sourceHints === false ? null : sourceHint(target);
     const box = el('div', 'pg-composer');
     const meta = el('div', 'pg-meta', `${anchor.tag} · ${anchor.selector}`);
     meta.title = anchor.selector;
@@ -556,6 +564,8 @@ export class PeanutGalleryWidget {
           createdAt: new Date().toISOString(),
           author: this.session.author,
           ...(this.currentSteps() ? { steps: this.currentSteps() } : {}),
+          // Which component and file render it, when the app is a dev build that can tell.
+          ...(source ? { source } : {}),
         });
       }
       this.save();

@@ -15,6 +15,7 @@ if (script?.dataset.repo) {
     activation: script.dataset.activation as 'always' | 'query' | undefined,
     loadFonts: script.dataset.loadFonts === 'true',
     recordTyping: script.dataset.recordTyping !== 'false',
+    sourceHints: script.dataset.sourceHints !== 'false',
     ...(script.dataset.theme === 'warm' || script.dataset.theme === 'cool' ? { theme: script.dataset.theme } : {}),
     author: script.dataset.author,
     labels: script.dataset.labels?.split(',').map((s) => s.trim()),

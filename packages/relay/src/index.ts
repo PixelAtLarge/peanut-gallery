@@ -227,6 +227,16 @@ function badStep(st: unknown): boolean {
   return false;
 }
 
+function badSource(src: unknown): boolean {
+  if (!src || typeof src !== 'object') return true;
+  const x = src as { framework?: unknown; components?: unknown; file?: unknown; line?: unknown };
+  if (!['react', 'vue', 'svelte', 'attribute'].includes(x.framework as string)) return true;
+  if (!Array.isArray(x.components) || x.components.length > 4 || x.components.some((c) => typeof c !== 'string' || c.length > 40)) return true;
+  if (x.file !== undefined && (typeof x.file !== 'string' || x.file.length > 200)) return true;
+  if (x.line !== undefined && (typeof x.line !== 'number' || !Number.isInteger(x.line) || x.line < 1)) return true;
+  return false;
+}
+
 function validate(s: ReviewSession | undefined, max: number): string | null {
   if (!s || typeof s !== 'object') return 'missing session';
   if (typeof s.id !== 'string' || typeof s.prototypeUrl !== 'string') return 'malformed session';
@@ -238,6 +248,7 @@ function validate(s: ReviewSession | undefined, max: number): string | null {
     if (!a.anchor || typeof a.anchor.selector !== 'string' || a.anchor.selector.length > 2000) return 'anchor invalid';
     if (typeof a.pageUrl !== 'string' || a.pageUrl.length > 2000) return 'pageUrl invalid';
     if (a.steps !== undefined && (!Array.isArray(a.steps) || a.steps.length > 10 || a.steps.some(badStep))) return 'steps invalid';
+    if (a.source !== undefined && badSource(a.source)) return 'source invalid';
     if (a.viewport !== undefined && (typeof a.viewport !== 'object' || !Number.isFinite(a.viewport?.width) || !Number.isFinite(a.viewport?.height))) return 'viewport invalid';
   }
   return null;

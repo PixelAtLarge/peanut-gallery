@@ -26,6 +26,8 @@ export async function implementProposal(
     cwd: string;
     model: string;
     sourceHints: string[];
+    /** Per note: the file (and line) that renders its element, checked against this repo. */
+    whereToLook?: string[];
     agentNotes?: string;
     /** Which design system to build with (see DesignSystemConfig). */
     designSystem?: DesignSystemConfig;
@@ -65,7 +67,14 @@ ${anns
 
 ## Where the UI code lives
 ${opts.sourceHints.map((h) => `- ${h}`).join('\n')}
-${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}${ds ? `\n${ds}\n` : ''}${
+${
+    opts.whereToLook?.length
+      ? `\n## Where each note's element is rendered
+These files exist in this repo. Start there, and confirm it's the right element before editing.
+${opts.whereToLook.map((w) => `- ${w}`).join('\n')}
+`
+      : ''
+  }${opts.agentNotes ? `\n## Team notes\n${opts.agentNotes}\n` : ''}${ds ? `\n${ds}\n` : ''}${
     guidance
       ? `\n## Project guidance (from ${opts.projectGuidance!.files.join(', ')}, written by this repo's maintainers)
 Follow its coding and design conventions. Where it asks for commands, tools or steps you don't have here, skip them; the Rules below still apply.
@@ -76,7 +85,7 @@ ${guidance}
       : ''
   }
 ## Rules
-- Find the component/markup that renders the referenced element (search by the selector, data-testid, id, class names, and visible text).
+- Find the component/markup that renders the referenced element${opts.whereToLook?.length ? ' (start with the files listed above)' : ''} (search by the selector, data-testid, id, class names, and visible text).
 - Make the smallest change that fully satisfies the spec. Do not refactor, rename, or touch unrelated files.
 - Follow the project's existing conventions (styling approach, component patterns, tokens/design system)${ds ? ', as described in the Design system section' : ''}.
 - Every class you add to markup must already be defined in the project's styles, or be defined in this same change. Before adding one, search for an existing class that does the job, and follow the naming pattern already in the code (e.g. \`btn--primary\` vs \`btn-primary\`). A class with no styles has no visible effect.

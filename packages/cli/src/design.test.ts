@@ -92,6 +92,26 @@ describe('design system', () => {
   });
 });
 
+describe('where to look', () => {
+  it('tells the agent which file renders each note, before the rules', async () => {
+    await implementProposal(
+      { id: 'pr_1', title: 't', summary: 's', instructions: 'i', annotationIds: [], issueNumbers: [1], effort: 'small', confidence: 1 } as never,
+      [],
+      { cwd: tmp(), model: 'm', sourceHints: ['src/**'], whereToLook: ['"Make it green" → src/pages/Cart.jsx:27 (from the running app: component CartRow)'] },
+    );
+    const prompt = sdk.prompts.at(-1)!;
+    expect(prompt).toContain("## Where each note's element is rendered\nThese files exist in this repo.");
+    expect(prompt).toContain('- "Make it green" → src/pages/Cart.jsx:27 (from the running app: component CartRow)');
+    expect(prompt).toContain('referenced element (start with the files listed above)');
+    expect(prompt.indexOf("## Where each note's")).toBeLessThan(prompt.indexOf('## Rules'));
+  });
+
+  it("leaves the section out when there's nothing to say", async () => {
+    await implementProposal({ id: 'pr_1', title: 't', summary: 's', instructions: 'i', annotationIds: [], issueNumbers: [1], effort: 'small', confidence: 1 } as never, [], { cwd: tmp(), model: 'm', sourceHints: ['src/**'] });
+    expect(sdk.prompts.at(-1)!).not.toContain("Where each note's");
+  });
+});
+
 describe('policy hardening', () => {
   it('matches globs', () => {
     expect(globToRegExp('src/tokens/**').test('src/tokens/a/b.json')).toBe(true);

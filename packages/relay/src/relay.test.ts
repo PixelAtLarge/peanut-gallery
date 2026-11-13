@@ -74,6 +74,18 @@ describe('relay steps', () => {
   });
 });
 
+describe('relay source hints', () => {
+  it('accepts a well-formed source hint and rejects odd ones', async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/owner/repo/issues/8', number: 8 }), { status: 201 }));
+    const handle = createRelayHandler({ githubToken: 't', repo: 'owner/repo', fetch: f as unknown as typeof fetch });
+    const withSource = (source: unknown) => ({ session: { ...session, annotations: session.annotations.map((a) => ({ ...a, source })) } });
+    expect((await handle(post(withSource({ framework: 'react', components: ['Cart'], file: 'src/pages/Cart.jsx', line: 27 })))).status).toBe(201);
+    expect((await handle(post(withSource({ framework: 'angular', components: [] })))).status).toBe(400);
+    expect((await handle(post(withSource({ framework: 'vue', components: ['a', 'b', 'c', 'd', 'e'] })))).status).toBe(400);
+    expect((await handle(post(withSource({ framework: 'svelte', components: [], line: -1 })))).status).toBe(400);
+  });
+});
+
 describe('relay as a public endpoint', () => {
   const ok = () =>
     vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ html_url: 'https://github.com/o/r/issues/9', number: 9 }), { status: 201 }));
