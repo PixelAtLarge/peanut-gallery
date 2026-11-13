@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { completeJson, extractJson } from './llm.js';
-import { stepsPhrase, uid, type Annotation, type Proposal } from '@pixelatlarge/peanut-gallery-core';
+import { sourceLabel, stepsPhrase, uid, type Annotation, type Proposal } from '@pixelatlarge/peanut-gallery-core';
 import type { FeedbackIssue } from './github.js';
 
 export interface FlatAnnotation extends Annotation {
@@ -76,6 +76,7 @@ export async function interpret(
     page: a.pageUrl,
     element: { tag: a.anchor.tag, selector: a.anchor.selector, text: a.anchor.textFingerprint, context: a.anchor.context },
     ...(a.steps?.length ? { reachedBy: stepsPhrase(a.steps) } : {}),
+    ...(a.source ? { renderedBy: sourceLabel(a.source).replace(/`/g, '') } : {}),
     viewport: a.viewport,
   }));
   const user = [

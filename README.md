@@ -14,6 +14,7 @@ Annotate your prototype or web app → feedback lands in GitHub Issues → Claud
 - **Runs on its own.** `npx peanut-gallery init --action` sets up a GitHub Action, so new feedback turns into proposed changes, and replies into verdicts, without anyone running a command.
 - **Screenshots your preview deploys** (Vercel, Netlify, Cloudflare Pages, Render…), with **what changed outlined**, and a warning when a change made no visible difference.
 - **Reads replies like a person.** "After, but keep the old green" counts as a vote for after, and the request is kept.
+- **Starts in the right file.** In dev builds of React, Vue and Svelte, each note records which component and file render the element; otherwise the CLI searches the code for it.
 - **Checks itself.** Each PR's description is compared with its diff, and anything that doesn't match is flagged.
 - **Reviewers see each other's notes** when they submit through the relay.
 
@@ -99,6 +100,7 @@ init({ repo: 'owner/prototype-repo', relayUrl: 'https://…/api/peanut-gallery',
 | `kinds` | all seven | which tags to offer |
 | `theme` | `"cool"` | `"cool"` or `"warm"`, or override any colour or font role, e.g. `{ primary: '#5b3df5', fontBody: 'Inter, sans-serif' }`, optionally on a preset (`{ preset: 'warm', … }`). `data-theme="warm"` on the script tag |
 | `loadFonts` | `false` | load Manrope, Young Serif and JetBrains Mono from Google Fonts (`data-load-fonts="true"` on the script tag) |
+| `sourceHints` | `true` | note which component and file render the element, read from the framework in dev builds (see below) |
 | `recordTyping` | `true` | keep what reviewers type and choose, so screenshots can replay it (private fields never are; see below). `data-record-typing="false"` on the script tag |
 | `onSubmit` | — | handle submission yourself (your backend, a demo); overrides `mode`. Resolve to clear the notes, return `{ keep: true }` to keep them, throw to show an error |
 | `session` | — | start from these notes instead of the ones saved in the browser |
@@ -171,6 +173,17 @@ npx peanut-gallery review        # pull → interpret → confirm → apply
   "screenshot": { "width": 1280, "height": 800 }
 }
 ```
+
+### Which file renders it
+
+Claude starts each change in the right file instead of searching the codebase for it.
+
+- **From the running app.** When a reviewer clicks an element, the widget asks the framework which component rendered it and where: **React** (dev builds, React 16–19), **Vue** 2 and 3 (dev builds), **Svelte** (dev builds), or a `data-source`-style attribute that a build plugin adds (`data-source="src/Hero.tsx:12"`, `data-inspector-relative-path`, `data-loc`). The note keeps the component names and the file path, relative to the project, never your machine's folders. The issue shows it: **Source:** `ConfirmDialog` › `Cart` in `src/components/ConfirmDialog.jsx`.
+- **Checked against the repo.** The CLI only passes a path along if that file exists in your repo, matching the end of the path when a monorepo or build adds folders in front. It then finds the exact line by searching that file for the element.
+- **Searched when the app can't say.** Production builds strip this information, so the CLI searches the code for the element's test id, id, text and distinctive classes. It suggests the best-matching file and line, plus the stylesheet for its classes.
+- **What Claude sees:** `"Make this the primary button…" → src/pages/Checkout.jsx:50 (from the running app: component Checkout)`. Claude still confirms it's the right element before editing.
+
+Set `sourceHints: false` in the widget to leave component and file names out of notes.
 
 ### Use your design system
 

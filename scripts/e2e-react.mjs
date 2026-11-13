@@ -193,6 +193,8 @@ const session = await page.evaluate((repo) => JSON.parse(localStorage.getItem(`p
 const paths = session.annotations.map((a) => new URL(a.pageUrl).pathname);
 check('session has 4 notes with the right route on each', session.annotations.length === 4 && paths.join(',') === '/,/,/checkout,/checkout', paths.join(', '));
 const stepsOf = (s) => s.annotations.map((a) => (a.steps ?? []).map((st) => (st.action && st.action !== 'click' ? `${st.action}:${st.field}:${st.masked ? '•' : st.value ?? ''}` : st.textFingerprint)));
+const sources = session.annotations.map((a) => a.source);
+check('each note says which component and file render its element (read from React in the dev server)', sources.every((x) => x?.framework === 'react') && ['src/pages/Cart.jsx', 'src/components/ConfirmDialog.jsx', 'src/pages/Checkout.jsx', 'src/pages/Checkout.jsx'].every((f, i) => sources[i]?.file === f) && JSON.stringify(sources.map((x) => x.components)) === JSON.stringify([['Cart'], ['ConfirmDialog', 'Cart'], ['Checkout'], ['Checkout']]), sources.map((x) => `${x?.components?.join('>')} @ ${x?.file}:${x?.line}`).join(' | '));
 check('the modal note carries the click that opened it (and only that)', JSON.stringify(stepsOf(session)[1]) === JSON.stringify(['Remove']) && !stepsOf(session)[0].length && !stepsOf(session)[2].length, JSON.stringify(stepsOf(session)));
 check('the promo note carries the typing: email masked, code and Enter kept', JSON.stringify(stepsOf(session)[3]) === JSON.stringify(['type:Email:•', 'type:Promo code:PLANTS10', 'enter:Promo code:']), JSON.stringify(stepsOf(session)[3]));
 check('the typed email is nowhere in the session', !JSON.stringify(session).includes(PRIVATE_EMAIL) && !JSON.stringify(session).includes('private.invalid'));
@@ -279,6 +281,7 @@ const phoneIssueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${phoneFile
 check('the phone issue says it came from a phone-size screen', phoneIssueBody.includes('390×844 (phone size)'));
 check('pull parsed the issue back into a session, steps included', ours?.session.annotations.length === 4 && JSON.stringify(stepsOf(ours.session)) === JSON.stringify(stepsOf(session)));
 const issueBody = JSON.parse(gh('api', `repos/${SANDBOX}/issues/${filed.issueNumber}`)).body;
+check('the issue says which component renders each note', (issueBody.match(/- \*\*Source:\*\* /g) ?? []).length === 4 && issueBody.includes('`ConfirmDialog`') && issueBody.includes('`src/components/ConfirmDialog.jsx`'));
 check('the issue tells humans how to reach the modal note', issueBody.includes('Reached by:** clicking “Remove”'));
 check('…and the promo note, without the email', issueBody.includes('Reached by:** filling in “Email” → typing “PLANTS10” into “Promo code” → pressing Enter') && !issueBody.includes('private.invalid'));
 
@@ -307,7 +310,9 @@ const edit = (cwd, file, from, to) => {
   if (!src.includes(from)) throw new Error(`stand-in edit: "${from}" not in ${file}`);
   writeFileSync(p, src.replace(from, to));
 };
-const fakeImplement = async (p, anns, { cwd }) => {
+const looked = new Map();
+const fakeImplement = async (p, anns, { cwd, whereToLook }) => {
+  looked.set(p.title, whereToLook ?? []);
   if (/checkout bar/i.test(p.title)) {
     edit(cwd, 'src/pages/Cart.jsx', '<span>{money(subtotal)}</span>', '<span>{items.length} plants · {money(subtotal)}</span>');
   } else if (/promo/i.test(p.title)) {
@@ -368,6 +373,10 @@ const barRun = runFor(bar);
 const barShot = barRun?.screenshots?.find((s) => s.label.startsWith('div') || s.label.startsWith('span'));
 check('phone note: close-up shot at phone size, of the bar only phones have', barShot && barShot.label.endsWith('· phone') && !barShot.label.includes('full page') && shotWidth(barShot.before, barRun) > 0 && shotWidth(barShot.before, barRun) <= 390 && shotWidth(barShot.after, barRun) <= 390, `${barShot?.label} · ${shotWidth(barShot?.before, barRun)}px / ${shotWidth(barShot?.after, barRun)}px wide`);
 check('…plus the page at both sizes', ['Page / ', 'Page / · phone'].every((l) => barRun?.screenshots?.some((s) => `${s.label} `.startsWith(l))) , barRun?.screenshots?.map((s) => s.label).join(' | '));
+if (!REAL_AI) {
+  const lookFor = (t) => [...looked.entries()].find(([k]) => t.test(k))?.[1] ?? [];
+  check('Claude is told which file and line render each note, checked against the repo', lookFor(/pay/i).some((l) => l.includes('→ src/pages/Checkout.jsx:50 (from the running app: component Checkout)')) && lookFor(/promo/i).some((l) => l.includes('→ src/pages/Checkout.jsx:35 ')) && lookFor(/remove dialog/i).some((l) => l.includes('→ src/components/ConfirmDialog.jsx:5 (from the running app: components ConfirmDialog › Cart)')) && lookFor(/checkout bar/i).some((l) => l.includes('→ src/pages/Cart.jsx:43 ')), JSON.stringify(Object.fromEntries(looked)));
+}
 const changeOf = (run, starts) => run?.screenshots?.find((x) => x.label.startsWith(starts))?.change;
 check('changes are outlined on the close-ups (pay button, dialog, promo message, phone bar)', [[payRun, 'button'], [modalRun, 'h2'], [promoRun, 'p'], [barRun, 'span']].every(([r, t]) => ['some', 'most'].includes(changeOf(r, t))), [[payRun, 'button'], [modalRun, 'h2'], [promoRun, 'p'], [barRun, 'span']].map(([r, t]) => changeOf(r, t)).join(', '));
 check('the phone-only bar change shows no visible change on the desktop page shot', barRun?.screenshots?.find((x) => x.label === 'Page /')?.change === 'none', barRun?.screenshots?.map((x) => `${x.label}: ${x.change}`).join(' | '));

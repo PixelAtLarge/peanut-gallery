@@ -12,6 +12,7 @@ import { auditChangedFiles } from '../policy.js';
 import { effectivePolicy, readProjectGuidance } from '../design.js';
 import { checksMarkdown, runChecks, type CheckResult } from '../checks.js';
 import { descriptionCheck } from '../description-check.js';
+import { locateSources, whereToLook } from '../source-locate.js';
 import { undefinedClassesCheck } from '../builtin-checks.js';
 import { renderComparePage, renderSummaryPage, type ComparePair } from '../compare.js';
 import { visualDiff, type VisualDiff } from '../visual-diff.js';
@@ -230,10 +231,15 @@ export async function runProposal(
     pc.dim(`  implementing with ${cfg.models.apply}…`) +
       pc.dim([usingDs ? ' design system' : '', guidance.files.length ? ` guidance: ${guidance.files.join(', ')}` : ''].filter(Boolean).join(' ·')),
   );
+  // Which file renders each note's element: the app's hint if it holds up here, else a search.
+  const mine = annotations.filter((x) => p.annotationIds.includes(x.id));
+  const look = whereToLook(mine, await locateSources(mine, wt).catch(() => new Map()));
+  for (const l of look) console.log(pc.dim(`  where to look: ${l.replace(/^"[^"]*" → /, '')}`));
   const agent = await (opts.implement ?? implementProposal)(p, annotations, {
     cwd: wt,
     model: cfg.models.apply,
     sourceHints: cfg.sourceHints,
+    whereToLook: look,
     agentNotes: cfg.agentNotes,
     designSystem: cfg.designSystem,
     projectGuidance: guidance.files.length ? guidance : undefined,

@@ -1,3 +1,4 @@
+import type { SourceHint } from './source.js';
 /**
  * An anchor ties a comment to a DOM element robustly enough to survive
  * minor markup changes. We store several independent signals and resolve
@@ -36,6 +37,8 @@ export interface Annotation {
    * fields (passwords, card numbers, email…) are recorded as `masked`, without what was typed.
    */
   steps?: Step[];
+  /** Where the element comes from in the code, when the running app could tell (dev builds). */
+  source?: SourceHint;
 }
 
 /** One thing the reviewer did before leaving a note. Plain anchors (older notes) are clicks. */

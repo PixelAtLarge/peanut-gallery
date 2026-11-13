@@ -1,4 +1,5 @@
 import { ISSUE_BLOCK_LANG, isPhoneViewport, stepsPhrase, type Annotation, type ReviewSession } from './types.js';
+import { sourceLabel } from './source.js';
 
 /** Human-readable + machine-parseable GitHub issue body for a review session. */
 export function sessionToIssue(session: ReviewSession): { title: string; body: string } {
@@ -20,6 +21,7 @@ export function sessionToIssue(session: ReviewSession): { title: string; body: s
     if (a.anchor.textFingerprint) lines.push(`- **Text:** “${a.anchor.textFingerprint}”`);
     if (a.anchor.context) lines.push(`- **Near:** ${a.anchor.context}`);
     if (a.steps?.length) lines.push(`- **Reached by:** ${stepsPhrase(a.steps)}`);
+  if (a.source) lines.push(`- **Source:** ${sourceLabel(a.source)}`);
     if (a.viewport && Number.isFinite(a.viewport.width) && Number.isFinite(a.viewport.height)) lines.push(`- **Viewport:** ${a.viewport.width}×${a.viewport.height}${isPhoneViewport(a.viewport) ? ' (phone size)' : ''}`);
     lines.push('');
   });
